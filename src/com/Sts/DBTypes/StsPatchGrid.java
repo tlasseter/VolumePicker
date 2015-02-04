@@ -88,15 +88,15 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	static final int NO_DEBUG = -1;
 	/** various debugPatchGrid print of patches in rowGrid and prevRowGrid arrays; check if this is not -1 and prints if id matches this value.  Make this -1 if you want no debugPatchGrid prints. */
-	static public final int debugPatchInitialID = NO_DEBUG;
+	static public final int debugPatchInitialID = 10; //NO_DEBUG;
 	/** debugPatchID may change if original patch is merged into a new one; when this occurs, set debugCurrentPatchID to new one and track it */
 	static int debugPatchID = debugPatchInitialID;
 
-	static final int debugPointRow = NO_DEBUG;
-	static final int debugPointCol = NO_DEBUG;
-
+	static final int debugPointRow = 6; //NO_DEBUG;
+	static final int debugPointCol = 26; //NO_DEBUG;
+	static final int debugPointSlice = 616; //NO_DEBUG
 	static final public boolean debugPatchGrid = debugPatchInitialID != NO_DEBUG;
-	static final boolean debugPoint = debugPointRow != NO_DEBUG && debugPointCol != NO_DEBUG;
+	static final boolean debugPoint = debugPointRow != NO_DEBUG && debugPointCol != NO_DEBUG && debugPointSlice != NO_DEBUG;
 
 	public StsPatchGrid()
 	{
@@ -264,7 +264,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	void addPatchPoint(StsPatchVolume.PatchPoint patchPoint)
 	{
 		// if (debugPatchGrid && id == debugPatchID)
-		if(debugPatchGrid && id == debugPatchID && debugPointRow == patchPoint.row && debugPointCol == patchPoint.col)
+		if(debugPatchGrid && (doDebugPoint(patchPoint)))
 			StsException.systemDebug(this, "addPatchPoint", " patchPoint " + patchPoint.toString());
 
 		if (patchPoints == null)
@@ -427,34 +427,23 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	public final void addRowCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
 	{
-		if (debugPatchGrid && otherPatchPoint.patchGrid.id == debugPatchInitialID && otherPatchPoint.row == debugPointRow && otherPatchPoint.col == debugPointCol-1)
+		if(debugPatchGrid && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
 			StsException.systemDebug(this, "addRowCorrelation", "adding row correl to " + otherPatchPoint.toString());
-		if (debugPatchGrid)
-		{
-			if (otherPatchPoint.z == nullValue)
-				StsException.systemError(this, "addRowCorrelation", "Has row correl at row: " + otherPatchPoint.row +
-						" col: " + otherPatchPoint.col + " but first point is null.");
-			if (newPatchPoint.z == nullValue)
-				StsException.systemError(this, "addRowCorrelation", "Has row correl at row: " + otherPatchPoint.row +
-						" col: " + otherPatchPoint.col + " but second point is null.");
-		}
 		otherPatchPoint.rowCorrel = correl;
 	}
 
 	public final void addColCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
 	{
-		if (debugPatchGrid && otherPatchPoint.patchGrid.id == debugPatchInitialID && otherPatchPoint.row == debugPointRow && otherPatchPoint.col == debugPointCol)
+		if (debugPatchGrid && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
 			StsException.systemDebug(this, "addRowCorrelation", "adding row correl to " + otherPatchPoint.toString());
-		if (debugPatchGrid)
-		{
-			if (otherPatchPoint.z == nullValue)
-				StsException.systemError(this, "addColCorrelation", "Has col correl at row: " + otherPatchPoint.row +
-						" col: " + otherPatchPoint.col + " but first point is null.");
-			if (newPatchPoint.z == nullValue)
-				StsException.systemError(this, "addColCorrelation", "Has col correl at row: " + otherPatchPoint.row +
-						" col: " + otherPatchPoint.col + " but second point is null.");
-		}
 		otherPatchPoint.colCorrel = correl;
+	}
+
+	public final boolean doDebugPoint(StsPatchVolume.PatchPoint patchPoint)
+	{
+		if(debugPoint && patchPoint.row == debugPointRow && patchPoint.col == debugPointCol && patchPoint.slice == debugPointSlice)
+			return true;
+		return false;
 	}
 
 	public void clear()
@@ -1371,6 +1360,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	public StsPatchVolume.PatchPoint getPatchPoint(int row, int col)
 	{
 		if (patchPoints == null) return null;
+		if(!isInsideRowCol(row, col)) return null;
 		return patchPoints[row - rowMin][col - colMin];
 	}
 

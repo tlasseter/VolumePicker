@@ -98,7 +98,12 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	transient float[] stretchCorrelations;
 	/** number of stretchCorrelations in sequence */
 	transient int nIterations;
-
+	/** correlate using falseTypes (e.g., a false Max matches a Max, etc) */
+	transient boolean useFalseTypes = false;
+	/** check that local loop doesn't cycle skip: if correls from prev row and prev col have same patch, allow only one connection point */
+	transient boolean checkCycleSkips = false;
+	/** For debugging: only run the cycle skip check if true */
+	transient boolean cycleSkipOnly = false;
 	/** row currently being computed: used for debugPatchGrid print out only */
 	transient int row, col, volRow, volCol;
 	transient int nPatchPointsMin;
@@ -149,7 +154,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 	public final int largeInt = 99999999;
 
-	public static final String[] pickTypeNames = new String[]{"Maximum", "Minimum", "Min+Max", "All"}; //, "Zero-crossing+", "Zero-crossing-", "All"};
+	public static final String[] pickTypeNames = new String[]{"All", "Min+Max", "Maximum", "Minimum"}; //, "Zero-crossing+", "Zero-crossing-", "All"};
 	public static final String[] stopCriteriaNames = new String[]{"Stop", "Replace", "Stop if same Z"};
 	//static StsComboBoxFieldBean displayAttributeBean = new StsComboBoxFieldBean(StsPatchVolume.class, "displayAttribute", "Attribute");
 	static public final float badCurvature = StsPatchGrid.badCurvature;
@@ -231,7 +236,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 	private static final long serialVersionUID = 1L;
 
-	static final boolean checkInsertFalseZeroCrossings = false;
 	public StsPatchVolume()
 	{
 	}
@@ -261,6 +265,9 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		float maxStretch = pickPanel.maxStretch;
 		pickType = pickPanel.pickType;
 		nPatchPointsMin = pickPanel.minPatchSize;
+		useFalseTypes = pickPanel.useFalseTypes;
+		checkCycleSkips = pickPanel.checkCycleSkips;
+		cycleSkipOnly = pickPanel.cycleSkipOnly;
 		isIterative = pickPanel.isIterative;
 		autoCorMax = pickPanel.autoCorMax;
 		autoCorMin = pickPanel.autoCorMin;
@@ -292,8 +299,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 		TracePoints[] rowTracePoints = null; //new TracePoints[nCols];
 		//hack:  FIX!
-		if(seismicVolume == null)
-			seismicVolume = (StsSeismicVolume)currentModel.getCurrentObject(StsSeismicVolume.class);
+		if (seismicVolume == null)
+			seismicVolume = (StsSeismicVolume) currentModel.getCurrentObject(StsSeismicVolume.class);
 		float absSeismicDataMax = Math.min(Math.abs(seismicVolume.dataMin), Math.abs(seismicVolume.dataMax));
 		minDataAmplitude = minAmpFraction * absSeismicDataMax;
 		initializeParameters();
@@ -368,6 +375,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		PatchPoint[] tracePatchPoints = new PatchPoint[0];
 		int nTracePatchPoints;
 		PatchPointLinkList patchPointsList;
+		/** current tracePoint we are checking for connections */
+		PatchPoint currentPoint;
 
 		/** constructor for testing of link list (see main) */
 		TracePoints(int nTracePatchPoints)
@@ -410,137 +419,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					tracePatchPoints[nTracePatchPoint] = new PatchPoint(row, col, n, z, tracePoints[n], tracePointType, nTracePatchPoint++);
 			}
 			nTracePatchPoints = nTracePatchPoint;
-			if(checkInsertFalseZeroCrossings)
-				tracePatchPoints = checkInsertFalseZeroCrossings(tracePatchPoints, nTracePatchPoints, tracePoints);
+			if (useFalseTypes)
+				checkInsertFalseZeroCrossings(tracePoints);
 			tracePatchPoints = (PatchPoint[]) StsMath.trimArray(tracePatchPoints, nTracePatchPoints);
 			initializePatchPointsList();
-		}
-
-		private PatchPoint[] checkInsertFalseZeroCrossings(PatchPoint[] tracePatchPoints, int nTracePatchPoints, float[] tracePoints)
-		{
-			PatchPoint[] newTracePatchPoints = new PatchPoint[tracePatchPoints.length];
-
-			PatchPoint point = tracePatchPoints[0];
-			byte pointType = point.pointType;
-			PatchPoint nextPoint = tracePatchPoints[1];
-			byte nextPointType = nextPoint.pointType;
-
-			int nn = 0; // index of new array with new points added
-			newTracePatchPoints[nn++] = point;
-			int row = point.row;
-			int col = point.col;
-			float z = point.z;
-			for(int n = 1; n < nTracePatchPoints-1; n++, z += interpolatedZInc)
-			{
-				PatchPoint prevPoint = point;
-				byte prevPointType = pointType;
-				point = nextPoint;
-				pointType = nextPointType;
-				nextPoint = tracePatchPoints[n+1];
-				nextPointType = nextPoint.pointType;
-				if(pointType == POINT_MAXIMUM)
-				{
-					if (prevPointType == POINT_FALSE_MINIMUM)
-					{
-						float sliceDif = point.slice - prevPoint.slice;
-						if (sliceDif > 2)
-						{
-							float floatNewSlice = sliceDif / 2 + prevPoint.slice;
-							int newSlice = intervalRound(floatNewSlice, prevPoint.slice);
-							float newZ = prevPoint.z + interpolatedZInc*(sliceDif/2);
-							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_PLUS_FALSE_ZERO_CROSSING, nn);
-							nn++;
-						}
-					}
-
-					newTracePatchPoints[nn++] = point;
-
-					if (nextPointType == POINT_FALSE_MINIMUM)
-					{
-						float sliceDif = nextPoint.slice - point.slice;
-						if (sliceDif > 2)
-						{
-							float floatNewSlice = sliceDif / 2 + point.slice;
-							int newSlice = intervalRound(floatNewSlice, point.slice);
-							float newZ = point.z + interpolatedZInc*(sliceDif/2);
-							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_MINUS_FALSE_ZERO_CROSSING, nn);
-							nn++;
-						}
-					}
-				}
-				else if(pointType == POINT_MINIMUM)
-				{
-					if (prevPointType == POINT_FALSE_MAXIMUM)
-					{
-						float sliceDif = point.slice - prevPoint.slice;
-						if (sliceDif > 2)
-						{
-							float floatNewSlice = sliceDif / 2 + prevPoint.slice;
-							int newSlice = intervalRound(floatNewSlice, prevPoint.slice);
-							float newZ = prevPoint.z + interpolatedZInc*(sliceDif/2);
-							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_MINUS_FALSE_ZERO_CROSSING, nn);
-							nn++;
-						}
-					}
-
-					newTracePatchPoints[nn++] = point;
-
-					if (nextPointType == POINT_FALSE_MAXIMUM)
-					{
-						float sliceDif = nextPoint.slice - point.slice;
-						if (sliceDif > 2)
-						{
-							float floatNewSlice = sliceDif / 2 + point.slice;
-							int newSlice = intervalRound(floatNewSlice, point.slice);
-							float newZ = point.z + interpolatedZInc*(sliceDif/2);
-							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_PLUS_FALSE_ZERO_CROSSING, nn);
-							nn++;
-						}
-					}
-				}
-				else
-					newTracePatchPoints[nn++] = point;
-			}
-			newTracePatchPoints[nn++] = tracePatchPoints[nTracePatchPoints-1];
-			newTracePatchPoints = (PatchPoint[]) StsMath.trimArray(newTracePatchPoints, nn);
-			return newTracePatchPoints;
-		}
-
-		private final int intervalRound(float value, int min)
-		{
-			return min + Math.round(value - min);
-		}
-
-		private void initializePatchPointsList()
-		{
-			patchPointsList = new PatchPointLinkList(nTracePatchPoints);
-			patchPointsList.currentPoint = tracePatchPoints[0];
-		}
-
-		/** Insert inactive row and col connections at the top and bottom of the patchPointsList.
-		 *  When scanning the patchPointsList, these have indices set to prevent going beyond the actual connections.
- 		 * @param prevColTrace trace in the same col, prev row as this trace
-		 * @param prevRowTrace trace in the same row, prev col as this trace
-		 */
-		private void initializePatchPointsListConnections(TracePoints prevColTrace, TracePoints prevRowTrace)
-		{
-			if(prevRowTrace != null)
-			{
-				patchPointsList.first.rowConnection = new Connection(prevRowTrace.patchPointsList.first, patchPointsList.first);
-				patchPointsList.last.rowConnection = new Connection(prevRowTrace.patchPointsList.last, patchPointsList.last);
-			}
-			if(prevColTrace != null)
-			{
-				patchPointsList.first.colConnection = new Connection(prevColTrace.patchPointsList.first, patchPointsList.first);
-				patchPointsList.last.colConnection = new Connection(prevColTrace.patchPointsList.last, patchPointsList.last);
-			}
-		}
-
-		private void reinitializeTraceIndices(TracePoints prevRowTrace, TracePoints prevColTrace)
-		{
-			if (trace != null) reinitializeTraceIndexing();
-			if (prevRowTrace != null) prevRowTrace.reinitializeTraceIndexing();
-			if (prevColTrace != null) prevColTrace.reinitializeTraceIndexing();
 		}
 
 		/**
@@ -555,12 +437,22 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			int nTracePatchPoints = tracePatchPoints.length;
 			if (nTracePatchPoints == 0) return;
 
+			// The patchPointsList for this trace is initialized with top and bot inactive connections to prev row and col traces.
+			// These inactive connections are used to limit the search process.
+			// a connection is from the first point in this patchPointsList to the first point in the corresponding row or col trace
 			initializePatchPointsListConnections(prevColTrace, prevRowTrace);
+			// If there are previous row and col traces, see if a point from each have the same patch;
+			// if so, check whether a newPoint exists on this trace which correlates with these existing points.
+			// If so, add it.
+			if (checkCycleSkips && row > 0 && col > 0) addCyclePatches(prevColTrace, prevRowTrace, autoCorMin);
 			// For each patchPoint, check previous traces for points which are same type and just above or below this new point
 			// and find which of these two possible prev trace points has the best correlation.
 			// If this correlation is above the minCorrelation, add this new point to the prev point patch.
 			// If the new point already has a patch (because it correlated with one of the other of the 4 otherTraces, then the addPatchPointToPatch
 			// will merge the two patches.
+
+			if(cycleSkipOnly) return;
+
 			for (int i = 0; i < nIterations; i++)
 			{
 				reinitializeTraceIndices(prevRowTrace, prevColTrace);
@@ -568,17 +460,95 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				for (int centerPointIndex = 0; centerPointIndex < nTracePatchPoints; centerPointIndex++)
 				{
 					PatchPoint centerPoint = tracePatchPoints[centerPointIndex];
-					if(!StsTraceUtilities.isMaxMinOrZero(centerPoint.pointType)) continue;
-					CorrelationWindow window = new CorrelationWindow(this, centerPoint);
-					if (!window.initialize()) continue;
-					addTracePatch(window, prevColTrace, prevRowTrace, minStretchCorrelation);
+					if (!StsTraceUtilities.isMaxMinOrZero(centerPoint.getPointType())) continue;
+					CorrelationWindow window = constructCorrelationWindow(centerPoint);
+					if (window != null)
+						addTracePatch(window, prevColTrace, prevRowTrace, minStretchCorrelation);
+				}
+			}
+		}
+
+		/** If checkCycleSkips flag is set, this routine is the first pass for a trace and compares the three adjacent trace
+		 *  in a loop with this trace at the upper right (e.g., if this trace is at 1,1 then traces at 0,0 & 0,1 & 1,0 form a loop).
+		 *  These three other traces have already been processed, so have picked points and partial patches.
+		 *  In our example 1,1 is the newTrace (this one), 0,1 is the prevColTrace and 1,0 is the prevRowTrace.  We arbitrarily
+		 *  run down the prevColTrace looking for patches.  If a patch exists and also has a pint at the prevRowTrace, then we
+		 *  want to check if a single point can be created at the newTrace.  We create temporary matchingWindows on the newTrace
+		 *  correlating to windows on the prev row and col traces.  If these windows match and the correl coef is > minCorrelation,
+		 *  we use these two new connections.  If they don't match, we have a potential cycle skip.  Taking the window which has the
+		 *  highest correlation, compute the correlation coefficient between it and the other connection.  If this is ? minCorrelation,
+		 *  we use them; otherwise we ignore and move on.
+		 *
+		 * @param prevColTrace trace on prev row, same col which forms one leg of square loop
+		 * @param prevRowTrace trace on prev col, same row which forms the other leg of square loop
+		 * @param minStretchCorrelation correlation required for acceptable connections
+		 */
+		private void addCyclePatches(TracePoints prevColTrace, TracePoints prevRowTrace, float minStretchCorrelation)
+		{
+			reinitializeTraceIndices(prevRowTrace, prevColTrace);
+			PatchPointLinkList prevColConnectedPointList = prevColTrace.patchPointsList;
+			PatchPoint prevColConnectedPoint;
+			int prevRowTraceRow = prevRowTrace.row;
+			int prevRowTraceCol = prevRowTrace.col;
+			for (prevColConnectedPoint = prevColConnectedPointList.first; prevColConnectedPoint.next != null; prevColConnectedPoint = prevColConnectedPoint.next)
+			{
+				if (prevColConnectedPoint.patchGrid == null) continue;
+				StsPatchGrid patchGrid = prevColConnectedPoint.patchGrid;
+				PatchPoint prevRowConnectedPoint = patchGrid.getPatchPoint(prevRowTraceRow, prevRowTraceCol);
+				if (prevRowConnectedPoint != null)
+				{
+					CorrelationWindow prevColWindow = prevColTrace.constructCorrelationWindow(prevColConnectedPoint);
+					if (prevColWindow == null) continue;
+					CorrelationWindow prevRowWindow = prevRowTrace.constructCorrelationWindow(prevRowConnectedPoint);
+					if (prevRowWindow == null) continue;
+					int newCenterSlice = (prevColConnectedPoint.slice + prevRowConnectedPoint.slice) / 2;
+					PatchPoint newTraceCurrentPoint = nearestPatchPoint(newCenterSlice);
+					CorrelationWindow matchingColWindow = prevColWindow.findNewMatchingWindow(this, false, minStretchCorrelation);
+					if (matchingColWindow == null) continue;
+					CorrelationWindow matchingRowWindow = prevRowWindow.findNewMatchingWindow(this, true, minStretchCorrelation);
+					if (matchingRowWindow == null) continue;
+					Connection colConnection, rowConnection;
+					PatchPoint newPoint;
+					// if prevRow and prevCol traces have points on same patch and they correlate to the same point on the new trace
+					// add and process these connections
+					if (matchingColWindow.sameAs(matchingRowWindow))
+					{
+						colConnection = matchingColWindow.addPatchConnection(prevColWindow, false);
+						rowConnection = matchingRowWindow.addPatchConnection(prevRowWindow, true);
+						newPoint = matchingColWindow.centerPoint;
+						processNewConnections(newPoint, colConnection, rowConnection);
+						continue;
+					}
+					// matching windows on this trace aren't the same for both prev row and col windows
+					// so see if we can find one that best matches both
+					// compare connecting prevColWindow with matchingRowWindow and prevRowWindow with matchingColWindow
+					// take the best of these
+					// colRowCorrelation is correlation from the prevCol to the matchingWindow for the prevRow
+					// rowColCorrelation is correlation from the prevRow to thie matchingWindow for the prevCol
+					float colRowCorrelation = matchingRowWindow.computeCorrelation(prevColWindow);
+					float rowColCorrelation = matchingColWindow.computeCorrelation(prevRowWindow);
+					// take the best of these and pair with corresponding other connection to create the two connections
+					if (colRowCorrelation > rowColCorrelation && colRowCorrelation > minStretchCorrelation)
+					{
+						colConnection = matchingRowWindow.addPatchConnection(prevColWindow, false);
+						rowConnection = matchingRowWindow.addPatchConnection(prevRowWindow, true);
+						newPoint = matchingRowWindow.centerPoint;
+						processNewConnections(newPoint, colConnection, rowConnection);
+					}
+					else if (rowColCorrelation > minStretchCorrelation)
+					{
+						rowConnection = matchingColWindow.addPatchConnection(prevRowWindow, true);
+						colConnection = matchingColWindow.addPatchConnection(prevColWindow, false);
+						newPoint = matchingColWindow.centerPoint;
+						processNewConnections(newPoint, colConnection, rowConnection);
+					}
 				}
 			}
 		}
 
 		private void addTracePatch(CorrelationWindow window, TracePoints prevColTrace, TracePoints prevRowTrace, float minStretchCorrelation)
 		{
-			PatchPoint centerPoint = window.centerPoint;
+			PatchPoint newPoint = window.centerPoint;
 			Connection rowConnection = null;
 			Connection colConnection = null;
 
@@ -586,162 +556,735 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				colConnection = checkAddColConnection(window, prevColTrace, minStretchCorrelation);
 			if (prevRowTrace != null)
 				rowConnection = checkAddRowConnection(window, prevRowTrace, minStretchCorrelation);
-			if(colConnection != null)
+
+			processNewConnections(newPoint, colConnection, rowConnection);
+		}
+
+		protected CorrelationWindow constructCorrelationWindow(PatchPoint centerPoint)
+		{
+			try
+			{
+				return new CorrelationWindow(centerPoint);
+			}
+			catch (Exception e)
+			{
+				StsException.outputWarningException(this, "constructCorrelationWindow", e);
+				return null;
+			}
+		}
+
+		final boolean isMaximum(byte pointType)
+		{
+			return pointType == POINT_MAXIMUM || pointType == POINT_FALSE_MAXIMUM;
+		}
+
+		final boolean isMinimum(byte pointType)
+		{
+			return pointType == POINT_MINIMUM || pointType == POINT_FALSE_MINIMUM;
+		}
+
+		final boolean isZeroPlus(byte pointType)
+		{
+			return pointType == POINT_PLUS_ZERO_CROSSING || pointType == POINT_PLUS_FALSE_ZERO_CROSSING;
+		}
+
+		final boolean isZeroMinus(byte pointType)
+		{
+			return pointType == POINT_MINUS_ZERO_CROSSING || pointType == POINT_MINUS_FALSE_ZERO_CROSSING;
+		}
+
+		class CorrelationWindow
+		{
+			PatchPoint centerPoint;
+			int centerPointIndex;
+			PatchPoint pointAbove;
+			PatchPoint pointBelow;
+			/** slice value of center point */
+			int centerSlice;
+			/** slice value of top point */
+			int minSlice;
+			/** slice value of bot point */
+			int maxSlice;
+			/** slice difference from center point to top point */
+			int dSliceMinus;
+			/** slice difference from bot point to center point */
+			int dSlicePlus;
+			float stretchCorrelation;
+			byte centerPointType;
+			byte abovePointType;
+			byte belowPointType;
+			byte windowType;
+
+			CorrelationWindow(PatchPoint centerPoint)
+			{
+				this.centerPoint = centerPoint;
+				this.centerPointIndex = centerPoint.traceIndex;
+				this.centerSlice = centerPoint.slice;
+				centerPointType = centerPoint.getPointType();
+				abovePointType = StsTraceUtilities.pointTypesBefore[centerPointType];
+				belowPointType = StsTraceUtilities.pointTypesAfter[centerPointType];
+				initialize();
+			}
+
+			boolean initialize()
+			{
+				try
+				{
+					int nTracePatchPoints = tracePatchPoints.length;
+					if (nTracePatchPoints < 2) return false;
+
+					if (centerPointIndex <= 0)
+						return defineWindowBelow();
+					else if (centerPointIndex == nTracePatchPoints - 1)
+						return defineWindowAbove();
+					else
+						return defineWindowCentered();
+				}
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "initialize", e);
+					return false;
+				}
+			}
+
+			private TracePoints getTracePoints()
+			{
+				return TracePoints.this;
+			}
+
+			boolean defineWindowBelow()
+			{
+				windowType = WINDOW_BELOW;
+				pointAbove = centerPoint;
+				pointBelow = getTracePatchPointBelow(centerPointIndex);
+				if (pointBelow == null) return false;
+				maxSlice = pointBelow.slice;
+				dSlicePlus = maxSlice - centerSlice;
+				dSliceMinus = dSlicePlus;
+				minSlice = centerSlice - dSliceMinus;
+				return true;
+			}
+
+			boolean defineWindowAbove()
+			{
+				windowType = WINDOW_ABOVE;
+				pointBelow = centerPoint;
+				pointAbove = getTracePatchPointAbove(centerPointIndex);
+				if (pointAbove == null) return false;
+				minSlice = pointAbove.slice;
+				dSliceMinus = centerSlice - minSlice;
+				dSlicePlus = dSliceMinus;
+				maxSlice = centerSlice + dSlicePlus;
+				return true;
+			}
+
+			boolean defineWindowCentered()
+			{
+				windowType = WINDOW_CENTERED;
+				pointAbove = getTracePatchPointAbove(centerPointIndex);
+				pointBelow = getTracePatchPointBelow(centerPointIndex);
+				if (pointAbove == null && pointBelow == null) return false;
+				if (pointAbove == null) return defineWindowBelow();
+				if (pointBelow == null) return defineWindowAbove();
+				minSlice = pointAbove.slice;
+				maxSlice = pointBelow.slice;
+				dSliceMinus = centerSlice - minSlice;
+				dSlicePlus = maxSlice - centerSlice;
+				return true;
+			}
+
+			PatchPoint getTracePatchPointBelow(int centerPointIndex)
+			{
+				for (int index = centerPointIndex + 1; index < nTracePatchPoints; index++)
+					if (tracePatchPoints[index].getPointType() == belowPointType)
+						return tracePatchPoints[index];
+				return null;
+			}
+
+			PatchPoint getTracePatchPointAbove(int centerPointIndex)
+			{
+				for (int index = centerPointIndex - 1; index >= 0; index--)
+					if (tracePatchPoints[index].getPointType() == abovePointType)
+						return tracePatchPoints[index];
+				return null;
+			}
+
+			/**
+			 * Determine interval on otherTrace between two correlated patchPoints which bracket the centerSlice on thisTrace.
+			 * Search up and down from centerSlice on otherTrace for anywhere from two to four possible matchingWindows.
+			 * If a possible match is found within "near" distance from centerSlice, search for a second in that direction;
+			 * otherwise just check the one.
+			 * @param otherTrace the trace on which we want to find matching windows
+			 * @param minCorrelation minimum value used in matching windows @see matches()
+			 * @return best correlation window or null if none
+			 */
+
+			static final int near = 3;
+
+			CorrelationWindow findOtherMatchingWindow(TracePoints otherTrace, boolean isRow, float minCorrelation)
+			{
+				// this is sliceIndex for centerPoint of this window for which we want to find a matchingWindow on otherTrace
+				int centerSlice = centerPoint.slice;
+				// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
+				PatchPoint otherCenterPoint = otherTrace.nearestPatchPoint(centerSlice);
+				int otherCenterIndex = otherCenterPoint.traceIndex;
+
+				PatchPoint otherConnectedPatchPointAbove = getOtherConnectedPatchPointAbove(isRow);
+				PatchPoint otherConnectedPatchPointBelow = getOtherConnectedPatchPointBelow(isRow);
+				int otherConnectedPointIndexAbove = otherConnectedPatchPointAbove.traceIndex;
+				int otherConnectedPointIndexBelow = otherConnectedPatchPointBelow.traceIndex;
+				otherCenterIndex = StsMath.limitBetweenExclusive(otherCenterIndex, otherConnectedPointIndexAbove, otherConnectedPointIndexBelow);
+				if (otherCenterIndex == StsParameters.nullInteger) return null;
+
+				return findMatchingWindow(otherTrace, otherCenterPoint, otherConnectedPointIndexAbove, otherConnectedPointIndexBelow, minCorrelation);
+			}
+
+			/**
+			 * here we are looking for a match window on a new trace where thisTrace is the otherTrace.
+			 * So we need to find the connectedPoints above and below the centerPoint on this newTrace which limit it.
+			 * @param newTrace trace
+			 * @param isRow
+			 * @param minCorrelation
+			 * @return
+			 */
+			CorrelationWindow findNewMatchingWindow(TracePoints newTrace, boolean isRow, float minCorrelation)
+			{
+				// this is sliceIndex for centerPoint of this otherWindow for which we want to find a matchingWindow on newTrace
+				int otherCenterSlice = centerPoint.slice;
+				// sliceIndex for correlated point just above centerSlice on trace; search for matches down from here to correlatedPoint below
+				PatchPoint newStartPoint = newTrace.nearestPatchPoint(otherCenterSlice);
+
+				PatchPoint newConnectedPatchPointAbove = newTrace.patchPointsList.getConnectedPatchPointAbove(newStartPoint, isRow);
+				PatchPoint newConnectedPatchPointBelow = newConnectedPatchPointAbove.next;
+				int newConnectedPointIndexAbove = newConnectedPatchPointAbove.traceIndex;
+				int newConnectedPointIndexBelow = newConnectedPatchPointBelow.traceIndex;
+				int newCenterIndex = newStartPoint.traceIndex;
+				newCenterIndex = StsMath.limitBetweenExclusive(newCenterIndex, newConnectedPointIndexAbove, newConnectedPointIndexBelow);
+				if (newCenterIndex == StsParameters.nullInteger) return null;
+				PatchPoint newCenterPoint = newTrace.tracePatchPoints[newCenterIndex];
+				return findMatchingWindow(newTrace, newCenterPoint, newConnectedPointIndexAbove, newConnectedPointIndexBelow, minCorrelation);
+			}
+
+			/**
+			 * Find matchingWindow on otherTrace which matches this window.
+			 * First determine interval on otherTrace between two correlated patchPoints which bracket the input startPoint on otherTrace.
+			 * Search up and down from startPoint.traceIndex on otherTrace for anywhere from two to four possible matchingWindows.
+			 * If a possible match is found within "near" distance from startSlice, search for a second in that direction;
+			 * otherwise just check the one.
+			 * @param otherTrace trace we want to search for the best matching window to this one
+			 * @param otherStartPoint point on otherTrace which is starting point to search up and down for matching windows
+			 * @param otherConnectedPointIndexAbove tracePatchPoints index which is upper limit of search (last connectedPoint above: we don't want connection to cross it)
+			 * @param otherConnectedPointIndexBelow tracePatchPoints index which is lower limit of search (last connectedPoint below: we don't want connection to cross it)
+			 * @param minCorrelation minimum value used in matching windows @see matches()
+			 * @return best correlation window or null if none
+			 */
+			CorrelationWindow findMatchingWindow(TracePoints otherTrace, PatchPoint otherStartPoint, int otherConnectedPointIndexAbove, int otherConnectedPointIndexBelow, float minCorrelation)
+			{
+				// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
+				int startIndex = otherStartPoint.traceIndex;
+				int startSlice = otherStartPoint.slice;
+
+				CorrelationWindow matchingWindow = null; // this will be best matching window in otherTrace
+
+				int offset = 0;
+				int index;
+				PatchPoint otherTraceCenterPoint;
+				CorrelationWindow window;
+
+				CorrelationWindow[] correlationWindows;
+				int nCorrelationWindows = 0;
+
+				if (debugCorrelationWindows)
+					correlationWindows = new CorrelationWindow[4];
+
+				try
+				{
+					// search down for one or two windows (two if first is within "near" slices of center
+					for (index = startIndex; index < otherConnectedPointIndexBelow; index++, offset++)
+					{
+						otherTraceCenterPoint = otherTrace.tracePatchPoints[index];
+						if (otherTraceCenterPoint.slice > maxSlice) break;
+						if (!pointTypesMatch(centerPointType, otherTraceCenterPoint.getPointType())) continue;
+						window = checkCreateOtherMatchingWindow(otherTrace, otherTraceCenterPoint, centerPointType);
+						if (window == null) continue;
+
+						if (debugCorrelationWindows)
+							correlationWindows[nCorrelationWindows++] = window;
+						// to be accepted, the window correlation must be the best of all and greater than the minCorrelation
+						if (window.stretchCorrelation > minCorrelation)
+						{
+							matchingWindow = window;
+							minCorrelation = window.stretchCorrelation;
+						}
+
+						if (!searchForMultipleWindowMatches || offset > near)
+							break; // if we found one inside near, try for a second but once outside near, break give us one or two windows
+					}
+					offset = 0;
+					// search up for one or two windows (two if first is within "near" slices of center
+					for (index = startIndex - 1; index > otherConnectedPointIndexAbove; index--, offset++)
+					{
+						otherTraceCenterPoint = otherTrace.tracePatchPoints[index];
+						if (otherTraceCenterPoint.slice < minSlice) break;
+						if (centerPointType != otherTraceCenterPoint.getPointType()) continue;
+						window = checkCreateOtherMatchingWindow(otherTrace, otherTraceCenterPoint, centerPointType);
+						if (window == null) continue;
+
+						if (debugCorrelationWindows)
+							correlationWindows[nCorrelationWindows++] = window;
+						if (window.stretchCorrelation > minCorrelation)
+						{
+							matchingWindow = window;
+							minCorrelation = window.stretchCorrelation;
+						}
+						if (!searchForMultipleWindowMatches || offset > near)
+							break;
+					}
+					if (debugCorrelationWindows && nCorrelationWindows > 1)
+					{
+						System.out.println("findNewMatchingWindow: " + nCorrelationWindows + " windows");
+						for (int n = 0; n < nCorrelationWindows; n++)
+							System.out.println(" window: " + n + correlationWindows[n].toString());
+					}
+					return matchingWindow;
+				}
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "findNewMatchingWindow", e);
+					return null;
+				}
+			}
+
+			CorrelationWindow checkCreateOtherMatchingWindow(TracePoints otherTrace, PatchPoint otherTraceCenterPoint, byte centerPointType)
+			{
+				CorrelationWindow otherWindow = otherTrace.constructCorrelationWindow(otherTraceCenterPoint);
+				if (otherWindow == null) return null;
+				if (!windowTypesMatch(this, otherWindow)) return null;
+				if (otherWindow.isCenterSliceOutsideWindow(centerSlice)) return null;
+				computeCorrelation(otherWindow);
+				return otherWindow;
+			}
+
+			/** check the various correlation measures and return the otherWindow if it matches; otherwise return null
+			 *  store the correlation value in the otherWindow
+			 * @param otherWindow correlation will be computed between this window and the otherWindow
+			 * @return correlation value (which is also stored in the otherWindow)
+			 */
+			float computeCorrelation(CorrelationWindow otherWindow)
+			{
+				// check correlation stretch
+				float stretchCorrelation;
+				if (windowType == WINDOW_BELOW)
+					stretchCorrelation = computePlusStretchFactor(otherWindow);
+				else if (windowType == WINDOW_ABOVE)
+					stretchCorrelation = computeMinusStretchFactor(otherWindow);
+				else
+					stretchCorrelation = (computePlusStretchFactor(otherWindow) + computeMinusStretchFactor(otherWindow)) / 2;
+				// store this correlation in both windows as well as returning it
+				otherWindow.stretchCorrelation = stretchCorrelation;
+				this.stretchCorrelation = stretchCorrelation;
+				return stretchCorrelation;
+			}
+
+			private Connection checkAddConnection(TracePoints otherTrace, float minStretchCorrelation, boolean isRow)
+			{
+				CorrelationWindow otherMatchingWindow = findOtherMatchingWindow(otherTrace, isRow, minStretchCorrelation);
+				if (otherMatchingWindow == null) return null;
+				return addPatchConnection(otherMatchingWindow, isRow);
+			}
+
+			/**
+			 * Given a newPatchPoint at newRow-newCol, which correlates with a prevPatchPoint at prevRow-prevCol which is possibly part of a patchGrid in the prevPatchGridsSet,
+			 * combine these two points in the same patch.  The prevPatchPoint may be on the previous col (same row), or previous row (same col).
+			 * If the previousPatchPoint is not part of an existing patchGrid (prevID == -1), then we will create a new patchGrid and add both points to it.
+			 * If the previousPatchPoint is part of a patchGrid we will add the newPatchPoint to this patchGrid, unless the newPatchPoint already belongs to another patchGrid
+			 * (this occurs when we first correlate with the previous column and find one patchGrid and also correlate with the previous row and find a different patchGrid).
+			 */
+			public Connection addPatchConnection(CorrelationWindow otherWindow, boolean isRow)
+			{
+				StsPatchGrid patchGrid;
+				float correlation = otherWindow.stretchCorrelation;
+				if (correlation < minLinkCorrel) return null;
+
+				PatchPoint newPatchPoint = centerPoint;
+				PatchPoint otherPatchPoint = otherWindow.centerPoint;
+				double distance = Math.abs(otherPatchPoint.slice - newPatchPoint.slice);
+
+				StsPatchGrid otherPatchGrid = otherPatchPoint.getPatchGrid();
+				StsPatchGrid newPatchGrid = newPatchPoint.getPatchGrid();
+
+				// normally we can insert a new connectedPoint in the trace patchPointsList and split the connected interval;
+				// but if we have cloned this new point and it is already connected, don't add/split the trace again
+				//boolean splitIntervalOK = true;
+				if (newPatchGrid == null)
+				{
+					if (otherPatchGrid == null) // prevPatchGrid doesn't exist, so create it and add otherPoint to it
+					{
+						patchGrid = StsPatchGrid.construct(StsPatchVolume.this, newPatchPoint.getPointType());
+						patchGrid.addPatchPoint(otherPatchPoint);
+					}
+					else // otherPatchGrid does exist, so use it
+					{
+						// if this newPatchPoint overlaps the otherPatchGrid, we can't add it;
+						// So create a new patch and add a clone of the otherPatchPoint
+						if (otherPatchGrid.patchPointOverlaps(newPatchPoint))
+						{
+							patchGrid = StsPatchGrid.construct(StsPatchVolume.this, newPatchPoint.pointType);
+							otherPatchPoint = otherPatchPoint.clone();
+							patchGrid.addPatchPoint(otherPatchPoint);
+							//splitIntervalOK = false;
+						}
+						else // no overlap, so we will only need to add the newPatchPoint to it (below else)
+							patchGrid = otherPatchGrid;
+					}
+					patchGrid.addPatchPoint(newPatchPoint);
+				}
+				else // id != -1 means this point was just added to a patch from prev connection and the patchGrid would have been added to the rowGrids array
+				{
+					if (otherPatchGrid == null) // the otherPoint is not assigned to a patch; assign it to this one; don't add point to rowGrids unless it overlaps and addedGrid created
+					{
+						patchGrid = newPatchGrid;
+						if (patchGrid == null) return null; // patchGrid not found; systemDebugError was printed
+						// otherPatchPoint doesn't have a patchGrid, but newPatchPoint does; try to add otherPatchPoint to newPatchGrid,
+						// but if it overlaps, created an addedPatchGrid containing otherPatchPoint and a clone of newPatchPoint
+						// return this addedPatchGrid or patchGrid (if no new grid added)
+						patchGrid = patchGrid.checkAddPatchPoint(otherPatchPoint, newPatchPoint);
+						//patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correl);
+						//checkAddPatchGridToRowGrids(patchGrid);
+					}
+					else if (otherPatchGrid.id == newPatchGrid.id) // otherPoint is already assigned to the same patch: addCorrelation
+					{
+						patchGrid = newPatchGrid;
+						if (patchGrid == null) return null; // patchGrid not found; systemDebugError was printed
+						//checkAddPatchGridToRowGrids(patchGrid);
+						//patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correl);
+					}
+					// prevPoint and this point belong to different patches: merge newPatchGrid into prevPatchGrid and add connection
+					// if we can't merge OK, then we create a new patch with newPoint and clone of connected otherPoint
+					// cloned point is orphaned and won't be checked for additional connections; this will be done by the connected otherPoint.
+					else
+					{
+						if (StsPatchGrid.mergePatchPointsOK(otherPatchGrid, newPatchGrid))
+						{
+							patchGrid = mergePatchGrids(otherPatchPoint, newPatchPoint);
+							if (patchGrid == null)
+								return null; // error occurred: systemError written in mergePatchGrids routine
+						}
+						else
+						{
+							// we cant merge grids, so add a cloned point of the newPatchPoint to the otherPatch
+							// unless the otherPatch already has a point there; in this case, create a clone of the otherPatchPoint
+							// and add it to a newPatchGrid with the newPoint
+							// to anyone else via the trace search which doesn't see cloned points
+							if (debugCloneOK)
+							{
+								if (!otherPatchGrid.patchPointOverlaps(newPatchPoint))
+								{
+									newPatchPoint = newPatchPoint.clone();
+									otherPatchGrid.addPatchPoint(newPatchPoint);
+									patchGrid = otherPatchGrid;
+								}
+								else if (!newPatchGrid.patchPointOverlaps(otherPatchPoint))
+								{
+									otherPatchPoint = otherPatchPoint.clone();
+									newPatchGrid.addPatchPoint(otherPatchPoint);
+									patchGrid = newPatchGrid;
+								}
+								else // each point overlaps the other grid, so we create a newGrid with clones of both
+								{
+									patchGrid = StsPatchGrid.construct(StsPatchVolume.this, otherPatchGrid.patchType);
+									newPatchPoint = newPatchPoint.clone();
+									patchGrid.addPatchPoint(newPatchPoint);
+									otherPatchPoint = otherPatchPoint.clone();
+									patchGrid.addPatchPoint(otherPatchPoint);
+									//splitIntervalOK = false;
+								}
+							}
+						}
+					}
+				}
+
+				if (patchGrid == null) return null;
+
+				patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correlation);
+				Connection connection = addConnection(isRow, otherPatchPoint, newPatchPoint, correlation);
+				checkAddPatchGridToRowGrids(patchGrid);
+				//if (splitIntervalOK)
+					return connection;
+				//else
+				//	return null;
+			}
+
+			boolean pointTypesMatch(byte centerType, byte otherCenterType)
+			{
+				if (centerType == otherCenterType) return true;
+
+				if (!useFalseTypes) return false;
+
+				centerType = StsTraceUtilities.coercedPointTypes[centerType];
+				otherCenterType = StsTraceUtilities.coercedPointTypes[otherCenterType];
+				return centerType == otherCenterType;
+			}
+
+			/**
+			 * check the above and below types to see that they match.
+			 * We are assuming the centers have already been checked for matches
+			 * @param window the window
+			 * @param otherWindow otherWindow we are comparing it to
+			 * @return true if centerTypes, and above and below types match
+			 */
+			boolean windowTypesMatch(CorrelationWindow window, CorrelationWindow otherWindow)
+			{
+				byte above = window.pointAbove.getPointType();
+				byte below = window.pointBelow.getPointType();
+				byte otherAbove = otherWindow.pointAbove.getPointType();
+				byte otherBelow = otherWindow.pointBelow.getPointType();
+				return above == otherAbove && below == otherBelow;
+			}
+
+			/** if we have two windows with the exactly identical centerPoint, they must be equivalent if not equal windows. */
+			boolean sameAs(CorrelationWindow otherWindow)
+			{
+				return otherWindow.centerPoint == centerPoint;
+			}
+
+			float computeMinusStretchFactor(CorrelationWindow otherWindow)
+			{
+				float minusStretchFactor = ((float) dSliceMinus) / otherWindow.dSliceMinus;
+				if (minusStretchFactor > 1.0f)
+					minusStretchFactor = 1 / minusStretchFactor;
+				return minusStretchFactor;
+			}
+
+			float computePlusStretchFactor(CorrelationWindow otherWindow)
+			{
+				float plusStretchFactor = ((float) dSlicePlus) / otherWindow.dSlicePlus;
+				if (plusStretchFactor > 1.0f)
+					plusStretchFactor = 1 / plusStretchFactor;
+				return plusStretchFactor;
+			}
+
+			boolean isCenterSliceOutsideWindow(int centerSlice)
+			{
+				return centerSlice < minSlice || centerSlice > maxSlice;
+			}
+
+			public String toString()
+			{
+				return "centerPoint: " + centerPoint.toString() + " correlation: " + stretchCorrelation;
+			}
+
+			private float computeStretchCorrelation(CorrelationWindow otherWindow)
+			{
+				if (otherWindow == null) return 0.0f;
+
+				TracePoints traceOther = otherWindow.getTracePoints();
+				int centerOther = otherWindow.centerSlice;
+				int minOther = otherWindow.minSlice;
+				int maxOther = otherWindow.maxSlice;
+
+				// translate and stretch/shrink pointsOther z values so they line up with pointsNew
+
+				int dSliceMinusOther = centerOther - minOther;
+				int dSliceMinusNew = centerSlice - minSlice;
+				float dSliceMinusOtherScalar = (float) dSliceMinusNew / dSliceMinusOther;
+				// if(dzMinusOtherScalar < minStretchLimit || dzMinusOtherScalar > maxStretchLimit) return 0.0f;
+
+				float minusStretchFactor = dSliceMinusOtherScalar;
+				if (minusStretchFactor > 1.0f)
+					minusStretchFactor = 1 / minusStretchFactor;
+
+				int dSlicePlusOther = maxOther - centerOther;
+				int dSlicePlusNew = maxSlice - centerSlice;
+				float dSlicePlusOtherScalar = (float) dSlicePlusNew / dSlicePlusOther;
+				// if(dzPlusOtherScalar < minStretchLimit || dzPlusOtherScalar > maxStretchLimit) return 0.0f;
+
+				float plusStretchFactor = dSlicePlusOtherScalar;
+				if (plusStretchFactor > 1.0f)
+					plusStretchFactor = 1 / plusStretchFactor;
+
+				return Math.min(minusStretchFactor, plusStretchFactor);
+			}
+		}
+
+		/** For this new point, we may have a new row and/or col connection or no connection.
+		 *  If we have any new connection, then split our bounded connection interval at the new point
+		 *  and move the interval down to this new interval. If the point was cloned, we need to use the
+		 *  original point (point.clonedPoint) for these operations as it has the trace links for the
+		 *  split and move operations.  If no connections, just move the interval down.
+		 * @param newPoint new point which is at the end of the two row and/or col connections; connection may have a clone of it
+		 * @param colConnection connection from the prevColPoint (same col, prev row) to this new point or its clone
+		 * @param rowConnection connection from the prevRowPoint (same row, prev col) to this new point or its clone
+		 */
+		private void processNewConnections(PatchPoint newPoint, Connection colConnection, Connection rowConnection)
+		{
+			if (colConnection != null)
+			{
 				splitPatchInterval(colConnection.point);
-			else if(rowConnection != null)
+				movePatchInterval(colConnection.point);
+			}
+			else if (rowConnection != null)
+			{
 				splitPatchInterval(rowConnection.point);
-			movePatchInterval(centerPoint);
+				movePatchInterval(rowConnection.point);
+			}
+			else
+				movePatchInterval(newPoint);
 		}
 
 		private Connection checkAddRowConnection(CorrelationWindow window, TracePoints otherTrace, float minStretchCorrelation)
 		{
 			if (otherTrace == null) return null;
 			if (window.centerPoint.rowConnection != null) return null;
-			return checkAddConnection(window, otherTrace, minStretchCorrelation, true);
+			return window.checkAddConnection(otherTrace, minStretchCorrelation, true);
 		}
 
 		private Connection checkAddColConnection(CorrelationWindow window, TracePoints otherTrace, float minStretchCorrelation)
 		{
 			if (otherTrace == null) return null;
 			if (window.centerPoint.colConnection != null) return null;
-			return checkAddConnection(window, otherTrace, minStretchCorrelation, false);
+			return window.checkAddConnection(otherTrace, minStretchCorrelation, false);
 		}
 
-		private Connection checkAddConnection(CorrelationWindow window, TracePoints otherTrace, float minStretchCorrelation, boolean isRow)
+		Connection addConnection(boolean isRow, PatchPoint otherPatchPoint, PatchPoint patchPoint, float correlation)
 		{
-			CorrelationWindow matchingWindow = window.findMatchingWindows(otherTrace, isRow, minStretchCorrelation);
-			if (matchingWindow == null) return null;
-			PatchPoint centerPoint = window.centerPoint;
-			PatchPoint otherCenterPoint = matchingWindow.centerPoint;
-			// window.trace.splitPatchInterval(centerPoint);
-			// otherTrace.splitPatchInterval(otherCenterPoint);
-			double distance = Math.abs(otherCenterPoint.slice - window.centerSlice);
-			float correl = matchingWindow.stretchCorrelation;
-			return addPatchConnection(window.trace, centerPoint, otherCenterPoint, correl, isRow);
+			Connection connection = new Connection(otherPatchPoint, patchPoint, correlation);
+			if (isRow) patchPoint.rowConnection = connection;
+			else patchPoint.colConnection = connection;
+			return connection;
 		}
 
-		/**
-		 * Given a newPatchPoint at newRow-newCol, which correlates with a prevPatchPoint at prevRow-prevCol which is possibly part of a patchGrid in the prevPatchGridsSet,
-		 * combine these two points in the same patch.  The prevPatchPoint may be on the previous col (same row), or previous row (same col).
-		 * If the previousPatchPoint is not part of an existing patchGrid (prevID == -1), then we will create a new patchGrid and add both points to it.
-		 * If the previousPatchPoint is part of a patchGrid we will add the newPatchPoint to this patchGrid, unless the newPatchPoint already belongs to another patchGrid
-		 * (this occurs when we first correlate with the previous column and find one patchGrid and also correlate with the previous row and find a different patchGrid).
-		 */
-		public Connection addPatchConnection(TracePoints tracePoints, PatchPoint newPatchPoint, PatchPoint otherPatchPoint, float correl, boolean isRow)
+		private void checkInsertFalseZeroCrossings(float[] tracePoints)
 		{
-			StsPatchGrid patchGrid;
+			PatchPoint[] newTracePatchPoints = new PatchPoint[tracePatchPoints.length];
 
-			if (correl < minLinkCorrel) return null;
-			StsPatchGrid otherPatchGrid = otherPatchPoint.getPatchGrid();
-			StsPatchGrid newPatchGrid = newPatchPoint.getPatchGrid();
+			PatchPoint point = tracePatchPoints[0];
+			byte pointType = point.pointType;
+			PatchPoint nextPoint = tracePatchPoints[1];
+			byte nextPointType = nextPoint.pointType;
 
-			// normally we can split the trace connection interval at the newPoint on the trace,
-			// but if we have cloned this point it has already been split, so don't split the same point
-			boolean splitIntervalOK = true;
-			if (newPatchGrid == null)
+			int nn = 0; // index of new array with new points added
+			newTracePatchPoints[nn++] = point;
+			int row = point.row;
+			int col = point.col;
+			float z = point.z;
+			for (int n = 1; n < nTracePatchPoints - 1; n++, z += interpolatedZInc)
 			{
-				if (otherPatchGrid == null) // prevPatchGrid doesn't exist, so create it and add otherPoint to it
+				PatchPoint prevPoint = point;
+				byte prevPointType = pointType;
+				point = nextPoint;
+				pointType = nextPointType;
+				nextPoint = tracePatchPoints[n + 1];
+				nextPointType = nextPoint.pointType;
+				if (isMaximum(pointType))
 				{
-					patchGrid = StsPatchGrid.construct(StsPatchVolume.this, newPatchPoint.pointType);
-					patchGrid.addPatchPoint(otherPatchPoint);
-				}
-				else // otherPatchGrid does exist, so use it
-				{
-					// if this newPatchPoint overlaps the otherPatchGrid, we can't add it;
-					// So create a new patch and add a clone of the otherPatchPoint
-					if (otherPatchGrid.patchPointOverlaps(newPatchPoint))
+					if (prevPointType == POINT_FALSE_MINIMUM)
 					{
-						patchGrid = StsPatchGrid.construct(StsPatchVolume.this, newPatchPoint.pointType);
-						otherPatchPoint = otherPatchPoint.clone();
-						patchGrid.addPatchPoint(otherPatchPoint);
-						// splitIntervalOK = false;
-					}
-					else // no overlap, so we will only need to add the newPatchPoint to it (below else)
-						patchGrid = otherPatchGrid;
-				}
-				patchGrid.addPatchPoint(newPatchPoint);
-			}
-			else // id != -1 means this point was just added to a patch from prev connection and the patchGrid would have been added to the rowGrids array
-			{
-				if (otherPatchGrid == null) // the otherPoint is not assigned to a patch; assign it to this one; don't add point to rowGrids unless it overlaps and addedGrid created
-				{
-					patchGrid = newPatchGrid;
-					if (patchGrid == null) return null; // patchGrid not found; systemDebugError was printed
-					// otherPatchPoint doesn't have a patchGrid, but newPatchPoint does; try to add otherPatchPoint to newPatchGrid,
-					// but if it overlaps, created an addedPatchGrid containing otherPatchPoint and a clone of newPatchPoint
-					// return this addedPatchGrid or patchGrid (if no new grid added)
-					patchGrid = patchGrid.checkAddPatchPoint(otherPatchPoint, newPatchPoint);
-					//patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correl);
-					//checkAddPatchGridToRowGrids(patchGrid);
-				}
-				else if (otherPatchGrid.id == newPatchGrid.id) // otherPoint is already assigned to the same patch: addCorrelation
-				{
-					patchGrid = newPatchGrid;
-					if (patchGrid == null) return null; // patchGrid not found; systemDebugError was printed
-					//checkAddPatchGridToRowGrids(patchGrid);
-					//patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correl);
-				}
-				// prevPoint and this point belong to different patches: merge newPatchGrid into prevPatchGrid and add connection
-				// if we can't merge OK, then we create a new patch with newPoint and clone of connected otherPoint
-				// cloned point is orphaned and won't be checked for additional connections; this will be done by the connected otherPoint.
-				else
-				{
-					if (StsPatchGrid.mergePatchPointsOK(otherPatchGrid, newPatchGrid))
-					{
-						patchGrid = mergePatchGrids(otherPatchPoint, newPatchPoint);
-						if(patchGrid == null) return null; // error occurred: systemError written in mergePatchGrids routine
-					}
-					else
-					{
-						// we cant merge grids, so add a cloned point of the newPatchPoint to the otherPatch
-						// unless the otherPatch already has a point there; in this case, create a clone of the otherPatchPoint
-						// and add it to a newPatchGrid with the newPoint
-						// to anyone else via the trace search which doesn't see cloned points
-						if(debugCloneOK)
+						float sliceDif = point.slice - prevPoint.slice;
+						if (sliceDif > 2)
 						{
-							if (!otherPatchGrid.patchPointOverlaps(newPatchPoint))
-							{
-								newPatchPoint = newPatchPoint.clone();
-								otherPatchGrid.addPatchPoint(newPatchPoint);
-								patchGrid = otherPatchGrid;
-							}
-							else if(!newPatchGrid.patchPointOverlaps(otherPatchPoint))
-							{
-								otherPatchPoint = otherPatchPoint.clone();
-								newPatchGrid.addPatchPoint(otherPatchPoint);
-								patchGrid = newPatchGrid;
-							}
-							else // each point overlaps the other grid, so we create a newGrid with clones of both
-							{
-								patchGrid = StsPatchGrid.construct(StsPatchVolume.this, otherPatchGrid.patchType);
-								newPatchPoint = newPatchPoint.clone();
-								patchGrid.addPatchPoint(newPatchPoint);
-								otherPatchPoint = otherPatchPoint.clone();
-								patchGrid.addPatchPoint(otherPatchPoint);
-								splitIntervalOK = false;
-							}
+							float floatNewSlice = sliceDif / 2 + prevPoint.slice;
+							int newSlice = intervalRound(floatNewSlice, prevPoint.slice);
+							float newZ = prevPoint.z + interpolatedZInc * (sliceDif / 2);
+							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_PLUS_FALSE_ZERO_CROSSING, nn);
+							nn++;
+						}
+					}
+
+					newTracePatchPoints[nn] = point.resetIndex(nn);
+					nn++;
+
+					if (nextPointType == POINT_FALSE_MINIMUM)
+					{
+						float sliceDif = nextPoint.slice - point.slice;
+						if (sliceDif > 2)
+						{
+							float floatNewSlice = sliceDif / 2 + point.slice;
+							int newSlice = intervalRound(floatNewSlice, point.slice);
+							float newZ = point.z + interpolatedZInc * (sliceDif / 2);
+							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_MINUS_FALSE_ZERO_CROSSING, nn);
+							nn++;
 						}
 					}
 				}
+				else if (isMinimum(pointType))
+				{
+					if (prevPointType == POINT_FALSE_MAXIMUM)
+					{
+						float sliceDif = point.slice - prevPoint.slice;
+						if (sliceDif > 2)
+						{
+							float floatNewSlice = sliceDif / 2 + prevPoint.slice;
+							int newSlice = intervalRound(floatNewSlice, prevPoint.slice);
+							float newZ = prevPoint.z + interpolatedZInc * (sliceDif / 2);
+							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_MINUS_FALSE_ZERO_CROSSING, nn);
+							nn++;
+						}
+					}
+
+					newTracePatchPoints[nn] = point.resetIndex(nn);
+					nn++;
+
+					if (nextPointType == POINT_FALSE_MAXIMUM)
+					{
+						float sliceDif = nextPoint.slice - point.slice;
+						if (sliceDif > 2)
+						{
+							float floatNewSlice = sliceDif / 2 + point.slice;
+							int newSlice = intervalRound(floatNewSlice, point.slice);
+							float newZ = point.z + interpolatedZInc * (sliceDif / 2);
+							newTracePatchPoints[nn] = new PatchPoint(row, col, newSlice, newZ, tracePoints[newSlice], POINT_PLUS_FALSE_ZERO_CROSSING, nn);
+							nn++;
+						}
+					}
+				}
+				else
+				{
+					newTracePatchPoints[nn] = point.resetIndex(nn);
+					nn++;
+				}
 			}
-
-			if (patchGrid == null) return null;
-
-			patchGrid.addCorrelation(otherPatchPoint, newPatchPoint, correl);
-			Connection connection = tracePoints.addConnection(isRow, otherPatchPoint, newPatchPoint);
-			checkAddPatchGridToRowGrids(patchGrid);
-			if(splitIntervalOK)
-				return connection;
-			else
-				return null;
+			newTracePatchPoints[nn] = tracePatchPoints[nTracePatchPoints - 1].resetIndex(nn);
+			nn++;
+			tracePatchPoints = (PatchPoint[]) StsMath.trimArray(newTracePatchPoints, nn);
+			nTracePatchPoints = nn;
 		}
 
-		Connection addConnection(boolean isRow, PatchPoint otherPatchPoint, PatchPoint patchPoint)
+		private final int intervalRound(float value, int min)
 		{
-			Connection connection = new Connection(otherPatchPoint, patchPoint);
-			if (isRow) patchPoint.rowConnection = connection;
-			else 	   patchPoint.colConnection = connection;
-			return connection;
+			return min + Math.round(value - min);
+		}
+
+		private void initializePatchPointsList()
+		{
+			patchPointsList = new PatchPointLinkList(nTracePatchPoints);
+		}
+
+		/**
+		 * Insert inactive row and col connections at the top and bottom of the patchPointsList.
+		 * When scanning the patchPointsList, these have indices set to prevent going beyond the actual connections.
+		 * @param prevColTrace trace in the same col, prev row as this trace
+		 * @param prevRowTrace trace in the same row, prev col as this trace
+		 */
+		private void initializePatchPointsListConnections(TracePoints prevColTrace, TracePoints prevRowTrace)
+		{
+			if (prevRowTrace != null)
+			{
+				patchPointsList.first.rowConnection = new Connection(prevRowTrace.patchPointsList.first, patchPointsList.first);
+				patchPointsList.last.rowConnection = new Connection(prevRowTrace.patchPointsList.last, patchPointsList.last);
+			}
+			if (prevColTrace != null)
+			{
+				patchPointsList.first.colConnection = new Connection(prevColTrace.patchPointsList.first, patchPointsList.first);
+				patchPointsList.last.colConnection = new Connection(prevColTrace.patchPointsList.last, patchPointsList.last);
+			}
+		}
+
+		private void reinitializeTraceIndices(TracePoints prevRowTrace, TracePoints prevColTrace)
+		{
+			if (trace != null) reinitializeTraceIndexing();
+			if (prevRowTrace != null) prevRowTrace.reinitializeTraceIndexing();
+			if (prevColTrace != null) prevColTrace.reinitializeTraceIndexing();
 		}
 
 		/**
@@ -754,12 +1297,12 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			final PatchPoint first;
 			/** last point in link list (connected to last actual point in list) */
 			final PatchPoint last;
-			/** current tracePoint we are checking for connections */
-			PatchPoint currentPoint;
 			/** last connected point in linked list just above current point */
 			PatchPoint connectedPointAbove;
 			/** connected point just below connectedPointAbove in linked list */
 			PatchPoint connectedPointBelow;
+			/** last connected point that was set; a convenient starting point for any search */
+			PatchPoint currentConnectedPoint;
 
 			PatchPointLinkList(int nTracePatchPoints)
 			{
@@ -767,22 +1310,35 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				last = new PatchPoint(row, col, largeInt, seismicVolume.zMax + 1, 0.0f, POINT_ANY, nTracePatchPoints);
 				first.next = last;
 				last.prev = first;
+				currentConnectedPoint = first;
+				currentPoint = first;
+				connectedPointAbove = first;
+				connectedPointBelow = last;
+				connectedPointAbove.next = last;
+				connectedPointBelow.prev = first;
 			}
 
 			void reinitializeTraceIndexing()
 			{
 				connectedPointAbove = first;
 				connectedPointBelow = first.next;
+				currentConnectedPoint = first;
 				currentPoint = first;
 			}
 
-			/** we have moved down to a new existing correlated patchPoint; set the interval to the one between this patchPoint and the point below
+			/**
+			 * we have moved down to a new existing correlated patchPoint; set the interval to the one between this patchPoint and the point below
 			 * @param connectedPoint the point at the top of the interval to be set
 			 */
 			void movePatchInterval(PatchPoint connectedPoint)
 			{
+				PatchPoint connectedPointClone = connectedPoint.clonedPoint;
+				if(connectedPointClone != null)
+					connectedPoint = connectedPointClone;
 				connectedPointAbove = connectedPoint;
 				connectedPointBelow = connectedPoint.next;
+				currentPoint = connectedPoint;
+				currentConnectedPoint = connectedPoint;
 			}
 
 			/**
@@ -793,7 +1349,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			 */
 			void insert(PatchPoint connectedPoint)
 			{
-				if(connectedPoint == connectedPointAbove || connectedPoint == connectedPointBelow) return;
+				if (connectedPoint == connectedPointAbove || connectedPoint == connectedPointBelow) return;
 				connectedPointAbove.next = connectedPoint;
 				connectedPoint.prev = connectedPointAbove;
 				connectedPoint.next = connectedPointBelow;
@@ -821,85 +1377,71 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					n--;
 				}
 			}
-		}
-
-		/**
-		 * Double-linked list of connections. Used to bracket a potential new connection between existing connections above and below
-		 * on a row or col pair.
-		 */
-		class ConnectionLinkList
-		{
-			/** first connection in linked list (connected to first actual connection in list) */
-			final Connection first;
-			/** last connection in linked list (connected to last actual connection in list) */
-			final Connection last;
-			/** connection just above current working point */
-			Connection connectionAbove;
-			/** connection just below current working point */
-			Connection connectionBelow;
-
-			ConnectionLinkList(int nTracePoints)
+			/**
+			 * Search up from startPoint for a point which has a row or col Connection.
+			 * @param point point to start search from going up
+			 * @param isRow point on this trace where we want to find/make a connection
+			 * @return PatchPoint on the other row or col trace for the connection above the current search interval
+			 */
+			private PatchPoint getConnectedPatchPointAbove(PatchPoint point, boolean isRow)
 			{
-				first = new Connection(-1);
-				last = new Connection(nTracePoints);
-				first.next = last;
-				last.prev = first;
-				connectionAbove = first;
-				connectionBelow = last;
+				int slice = point.slice;
+				PatchPoint connectedPoint = currentConnectedPoint;
+				try
+				{
+					if (connectedPoint.slice <= slice) // search down for connectedPoint until we bracket and return cpnnectedPoint just above point
+					{
+						while (connectedPoint.next.slice <= slice)
+							connectedPoint = connectedPoint.next;
+						return connectedPoint;
+					}
+					else // search up until we bracket and return connectedPoint just above point
+					{
+						while (connectedPoint.prev.slice > slice)
+							connectedPoint = connectedPoint.prev;
+						return connectedPoint;
+					}
+				}
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "getConnectedPatchPointAbove", e);
+					return patchPointsList.first;
+				}
 			}
 
 			/**
-			 * we are inserting this connection in an interval between connectionAbove and connectionBelow, either of which could be null
-			 * meaning that it could be an openInterval with above and/or below undefined.  The interval (open or closed) is
-			 * split into two subintervals and the current interval is set to the lower subinterval.
-			 * @param connection point between pointAbove and pointBelow where interval is to be split into two subIntervals.
+			 * rowConnections and colConnections have linked list of connections between this trace and the other row or col trace.
+			 * For each list, connectionAbove and connectionBelow are the connections bounding our search interval on this trace.
+			 * If isRow==true, return the patchPoint connected to the connectionBelow in rowConnections; otherwise
+			 * return the patchPoint connected to the connectionBelow in colConnections.
+			 * @param isRow point on this trace where we want to find/make a connection
+			 * @return PatchPoint on the other row or col trace for the connection above the current search interval
 			 */
-			void insert(Connection connection)
+			private PatchPoint getConnectedPatchPointBelow(PatchPoint point, boolean isRow)
 			{
-				int index = connection.thisTraceIndex;
-				if (debug)
+				int slice = point.slice;
+				PatchPoint connectedPoint = currentConnectedPoint;
+				try
 				{
-					if (index < connectionAbove.thisTraceIndex)
-						StsException.systemError(this, "insert", " index " + index + " < connectionAbove.index " + connectionAbove.thisTraceIndex);
-					else if (index > connectionBelow.thisTraceIndex)
-						StsException.systemError(this, "insert", " index " + index + " > connectionBelow.index " + connectionBelow.thisTraceIndex);
+					if (connectedPoint.slice <= slice) // search down for connectedPoint until we bracket and return cpnnectedPoint just above point
+					{
+						while (connectedPoint.next.slice <= slice)
+							connectedPoint = connectedPoint.next;
+						return connectedPoint.next;
+					}
+					else // search up until we bracket and return connectedPoint just above point
+					{
+						while (connectedPoint.prev.slice > slice)
+							connectedPoint = connectedPoint.prev;
+						return connectedPoint;
+					}
 				}
-				connectionAbove.next = connection;
-				connection.prev = connectionAbove;
-				connection.next = connectionBelow;
-				connectionBelow.prev = connection;
-
-				connectionAbove = connection;
-				connectionBelow = connectionAbove.next;
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "getConnectedPatchPointAbove", e);
+					return patchPointsList.last;
+				}
 			}
-			/** we have moved down to a new existing correlated patchPoint; set the interval for bracketing connections
-			 */
-			void moveConnectionInterval(Connection connection)
-			{
-				if(connection == null) return;
-				connectionAbove = connection;
-				connectionBelow = connectionAbove.next;
-			}
-
-			void reinitializeIndexing()
-			{
-				connectionAbove = first;
-				connectionBelow = first.next;
-			}
-		}
-
-		boolean matchesEndPointType(byte pointType, boolean windowEndIsZeroCrossing, byte endPointType)
-		{
-			if (windowEndIsZeroCrossing)
-				return pointType == POINT_PLUS_ZERO_CROSSING || pointType == POINT_MINUS_ZERO_CROSSING;
-			else
-				return pointType == endPointType;
-		}
-
-		String patchPointToString(String string, Connection connection)
-		{
-			if (connection == null) return " " + string + " null";
-			else return " " + string + " " + connection.toString();
 		}
 
 		/**
@@ -908,7 +1450,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 */
 		void movePatchInterval(PatchPoint connectedPoint)
 		{
-			if(connectedPoint.hasConnection())
+			if (connectedPoint.hasConnection())
 				patchPointsList.movePatchInterval(connectedPoint);
 		}
 
@@ -920,7 +1462,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 */
 		void splitPatchInterval(PatchPoint connectedPoint)
 		{
-			patchPointsList.insert(connectedPoint);
+			if(connectedPoint.clonedPoint == null)
+				patchPointsList.insert(connectedPoint);
 		}
 
 		void reinitializeTraceIndexing()
@@ -937,7 +1480,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		{
 			int distance;
 			// if currentNearestPoint is above slice, search down for nearest
-			PatchPoint currentPoint = patchPointsList.currentPoint;
 			if (currentPoint.slice < slice)
 			{
 				distance = slice - currentPoint.slice;
@@ -956,7 +1498,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 							currentPoint = point;
 						else
 							currentPoint = lastPoint;
-						patchPointsList.currentPoint = currentPoint;
 						return currentPoint;
 					}
 					else
@@ -985,11 +1526,9 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 							currentPoint = point;
 						else
 							currentPoint = lastPoint;
-						patchPointsList.currentPoint = currentPoint;
 						return currentPoint;
 					}
 				}
-				patchPointsList.currentPoint = currentPoint;
 				currentPoint = point;
 			}
 			return currentPoint;
@@ -1005,24 +1544,16 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 */
 		private PatchPoint getOtherConnectedPatchPointAbove(boolean isRow)
 		{
+
 			PatchPoint connectionPointAbove = patchPointsList.connectedPointAbove;
+			Connection connection = null;
 			try
 			{
-				if (isRow)
-				{
-					while (connectionPointAbove.rowConnection == null)
-						connectionPointAbove = connectionPointAbove.prev;
-					return connectionPointAbove.rowConnection.otherPoint;
-
-				}
-				else
-				{
-					while (connectionPointAbove.colConnection == null)
-						connectionPointAbove = connectionPointAbove.prev;
-					return connectionPointAbove.colConnection.otherPoint;
-				}
+				while (((connection = connectionPointAbove.getConnection(isRow)) == null) && connectionPointAbove.prev != null)
+					connectionPointAbove = connectionPointAbove.prev;
+				return connection.otherPoint;
 			}
-			catch(Exception e)
+			catch (Exception e)
 			{
 				StsException.outputWarningException(this, "getOtherConnectedPatchPointAbove", e);
 				return patchPointsList.first; // hack for now, don't allow exception!
@@ -1040,26 +1571,17 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		private PatchPoint getOtherConnectedPatchPointBelow(boolean isRow)
 		{
 			PatchPoint connectionPointBelow = patchPointsList.connectedPointBelow;
+			Connection connection = null;
 			try
 			{
-				if (isRow)
-				{
-					while (connectionPointBelow.rowConnection == null)
-						connectionPointBelow = connectionPointBelow.next;
-					return connectionPointBelow.rowConnection.otherPoint;
-
-				}
-				else
-				{
-					while (connectionPointBelow.colConnection == null)
-						connectionPointBelow = connectionPointBelow.next;
-					return connectionPointBelow.colConnection.otherPoint;
-				}
+				while (((connection = connectionPointBelow.getConnection(isRow)) == null) && connectionPointBelow.next != null)
+					connectionPointBelow = connectionPointBelow.next;
+				return connection.otherPoint;
 			}
-			catch(Exception e)
+			catch (Exception e)
 			{
 				StsException.outputWarningException(this, "getOtherConnectedPatchPointBelow", e);
-				return patchPointsList.last;
+				return patchPointsList.last; // hack for now, don't allow exception!
 			}
 		}
 	}
@@ -1098,7 +1620,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	{
 		StsPatchGrid otherPatchGrid = otherPatchPoint.getPatchGrid();
 		StsPatchGrid newPatchGrid = newPatchPoint.getPatchGrid();
-		 // can't merge: find larger grid and add a clone of the overlapped point from the smaller grid to it
+		// can't merge: find larger grid and add a clone of the overlapped point from the smaller grid to it
 
 		StsPatchGrid changedGrid;
 		PatchPoint clonedPoint;
@@ -1186,6 +1708,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 		/** first point above which has a connected patch */
 //		PatchPoint connectedPointAbove = null;
+
 		/** first point below which has a connected patch */
 //		PatchPoint connectedPointBelow = null;
 
@@ -1212,7 +1735,24 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			this.traceIndex = traceIndex;
 		}
 
-		public boolean hasConnection() { return rowConnection != null || colConnection != null; }
+		public boolean hasConnection()
+		{
+			return rowConnection != null || colConnection != null;
+		}
+
+		public boolean hasConnection(boolean isRow)
+		{
+			if (isRow)
+				return rowConnection != null;
+			else
+				return colConnection != null;
+		}
+
+		public Connection getConnection(boolean isRow)
+		{
+			if (isRow) return rowConnection;
+			else return colConnection;
+		}
 
 		public int compareTo(PatchPoint otherPoint)
 		{
@@ -1221,15 +1761,16 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			else return 0;
 		}
 
-		/** A point needs to be cloned if it overlaps if by connected to it, the two newly connected grids overlap.
-		 *  So clone the point and clear connection data.  The single connection to this cloned point will be added.
- 		 * @return the cloned point
+		/**
+		 * A point needs to be cloned if it overlaps if by connected to it, the two newly connected grids overlap.
+		 * So clone the point and clear connection data.  The single connection to this cloned point will be added.
+		 * @return the cloned point
 		 */
 		protected PatchPoint clone()
 		{
 			try
 			{
-				PatchPoint clonedPoint = (PatchPoint)super.clone();
+				PatchPoint clonedPoint = (PatchPoint) super.clone();
 				clonedPoint.clearConnectionData();
 				clonedPoint.clonedPoint = this;
 				return clonedPoint;
@@ -1307,6 +1848,18 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		{
 			this.patchGrid = patchGrid;
 		}
+
+		public byte getPointType()
+		{
+			if (!useFalseTypes) return pointType;
+			return StsTraceUtilities.coercedPointTypes[pointType];
+		}
+
+		public PatchPoint resetIndex(int index)
+		{
+			traceIndex = index;
+			return this;
+		}
 	}
 
 	/**
@@ -1325,6 +1878,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		PatchPoint otherPoint;
 		/** index in thisTrace.tracePoints array for this connection; -1 for topStart and nTracePoints for botEnd in link list */
 		int thisTraceIndex;
+		/** correlation between these two points; assigned to otherPoint location in either row or col direction */
+		float correlation;
 
 		Connection(int thisIndex)
 		{
@@ -1335,10 +1890,16 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		{
 			this.point = newPoint;
 			otherPoint = newPoint.clone();
-			if(isRow)
+			if (isRow)
 				otherPoint.col--;
 			else
 				otherPoint.row--;
+		}
+
+		Connection(PatchPoint otherPoint, PatchPoint newPoint, float correlation)
+		{
+			this(otherPoint, newPoint);
+			this.correlation = correlation;
 		}
 
 		Connection(PatchPoint otherPoint, PatchPoint newPoint)
@@ -1347,9 +1908,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			this.otherPoint = otherPoint;
 			thisTraceIndex = newPoint.traceIndex;
 		}
+
 		public String toString()
 		{
-			return " connection: other point " + otherPoint.toString() + " to " + point.toString();
+			return " connection: other point " + otherPoint.toString() + " to " + point.toString() + " correl: " + correlation;
 		}
 	}
 
@@ -1405,287 +1967,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	public TracePoints testTraceLinkList(int nPoints)
 	{
 		return new TracePoints(nPoints);
-	}
-
-	class CorrelationWindow
-	{
-		TracePoints trace;
-		PatchPoint centerPoint;
-		int centerPointIndex;
-		PatchPoint pointAbove;
-		PatchPoint pointBelow;
-		/** slice value of center point */
-		int centerSlice;
-		/** slice value of top point */
-		int minSlice;
-		/** slice value of bot point */
-		int maxSlice;
-		/** slice difference from center point to top point */
-		int dSliceMinus;
-		/** slice difference from bot point to center point */
-		int dSlicePlus;
-		float stretchCorrelation;
-		byte centerPointType;
-		byte abovePointType;
-		byte belowPointType;
-		byte windowType;
-
-		CorrelationWindow(TracePoints trace, PatchPoint centerPoint)
-		{
-			this.trace = trace;
-			this.centerPoint = centerPoint;
-			this.centerPointIndex = centerPoint.traceIndex;
-			this.centerSlice = centerPoint.slice;
-			centerPointType = centerPoint.pointType;
-			abovePointType = StsTraceUtilities.pointTypesBefore[centerPointType];
-			belowPointType = StsTraceUtilities.pointTypesAfter[centerPointType];
-		}
-
-		boolean initialize()
-		{
-			try
-			{
-				int nTracePatchPoints = trace.tracePatchPoints.length;
-				if (nTracePatchPoints < 2) return false;
-
-				if (centerPointIndex <= 0)
-					return defineWindowBelow();
-				else if (centerPointIndex == nTracePatchPoints - 1)
-					return defineWindowAbove();
-				else
-					return defineWindowCentered();
-			}
-			catch (Exception e)
-			{
-				StsException.outputFatalException(this, "initialize", e);
-				return false;
-			}
-		}
-
-		boolean defineWindowBelow()
-		{
-			windowType = WINDOW_BELOW;
-			pointAbove = centerPoint;
-			pointBelow = getTracePatchPointBelow(centerPointIndex);
-			if (pointBelow == null) return false;
-			maxSlice = pointBelow.slice;
-			dSlicePlus = maxSlice - centerSlice;
-			dSliceMinus = dSlicePlus;
-			minSlice = centerSlice - dSliceMinus;
-			return true;
-		}
-
-		boolean defineWindowAbove()
-		{
-			windowType = WINDOW_ABOVE;
-			pointBelow = centerPoint;
-			pointAbove = getTracePatchPointAbove(centerPointIndex);
-			if (pointAbove == null) return false;
-			minSlice = pointAbove.slice;
-			dSliceMinus = centerSlice - minSlice;
-			dSlicePlus = dSliceMinus;
-			maxSlice = centerSlice + dSlicePlus;
-			return true;
-		}
-
-		boolean defineWindowCentered()
-		{
-			windowType = WINDOW_CENTERED;
-			pointAbove = getTracePatchPointAbove(centerPointIndex);
-			pointBelow = getTracePatchPointBelow(centerPointIndex);
-			if (pointAbove == null && pointBelow == null) return false;
-			if (pointAbove == null) return defineWindowBelow();
-			if (pointBelow == null) return defineWindowAbove();
-			minSlice = pointAbove.slice;
-			maxSlice = pointBelow.slice;
-			dSliceMinus = centerSlice - minSlice;
-			dSlicePlus = maxSlice - centerSlice;
-			return true;
-		}
-
-		PatchPoint getTracePatchPointBelow(int centerPointIndex)
-		{
-			PatchPoint[] tracePatchPoints = trace.tracePatchPoints;
-			int nTracePatchPoints = tracePatchPoints.length;
-
-			for (int index = centerPointIndex + 1; index < nTracePatchPoints; index++)
-				if (tracePatchPoints[index].pointType == belowPointType)
-					return tracePatchPoints[index];
-			return null;
-		}
-
-		PatchPoint getTracePatchPointAbove(int centerPointIndex)
-		{
-			PatchPoint[] tracePatchPoints = trace.tracePatchPoints;
-
-			for (int index = centerPointIndex - 1; index >= 0; index--)
-				if (tracePatchPoints[index].pointType == abovePointType)
-					return tracePatchPoints[index];
-			return null;
-		}
-
-		/**
-		 * Determine interval on otherTrace between two correlated patchPoints which bracket the centerSlice on thisTrace.
-		 * Search up and down from centerSlice on otherTrace for anywhere from two to four possible matchingWindows.
-		 * If a possible match is found within "near" distance from centerSlice, search for a second in that direction;
-		 * otherwise just check the one.
-		 * @param otherTrace the trace on which we want to find matching windows
-		 * @param stretchCorrelation minimum value used in matching windows @see matches()
-		 * @return best correlation window or null if none
-		 */
-
-		static final int near = 3;
-
-		CorrelationWindow findMatchingWindows(TracePoints otherTrace, boolean isRow, float stretchCorrelation)
-		{
-			// this is sliceIndex for centerPoint of this window for which we want to find a matchingWindow on otherTrace
-			int centerSlice = centerPoint.slice;
-			// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
-			PatchPoint otherTraceCurrentPoint = otherTrace.nearestPatchPoint(centerSlice);
-			int otherCenterIndex = otherTraceCurrentPoint.traceIndex;
-
-			PatchPoint otherConnectedPatchPointAbove = trace.getOtherConnectedPatchPointAbove(isRow);
-			PatchPoint otherConnectedPatchPointBelow = trace.getOtherConnectedPatchPointBelow(isRow);
-			//PatchPoint otherConnectedPatchPointAbove = trace.getOtherConnectedPatchPointAbove(isRow);
-			//PatchPoint otherConnectedPatchPointBelow = trace.getOtherConnectedPatchPointBelow(isRow);
-			int otherConnectedPointIndexAbove = otherConnectedPatchPointAbove.traceIndex;
-			int otherConnectedPointIndexBelow = otherConnectedPatchPointBelow.traceIndex;
-			otherCenterIndex = StsMath.limitBetweenExclusive(otherCenterIndex, otherConnectedPointIndexAbove, otherConnectedPointIndexBelow);
-			if(otherCenterIndex == StsParameters.nullInteger) return null;
-			CorrelationWindow matchingWindow = null; // this will be best matching window in otherTrace
-			float bestCorrelation = 0.0f; // this will be correlation between best otherTraceWindow and traceWindow
-			CorrelationWindow otherWindow; // possible matchingWindow to check for best match
-
-			int offset = 0;
-			int otherIndex;
-
-			CorrelationWindow[] correlationWindows;
-			int nCorrelationWindows = 0;
-			if (debugCorrelationWindows)
-				correlationWindows = new CorrelationWindow[4];
-
-			// search down for one or two windows (two if first is within "near" slices of center
-			for (otherIndex = otherCenterIndex; otherIndex < otherConnectedPointIndexBelow; otherIndex++, offset++)
-			{
-				PatchPoint otherTraceCenterPoint = otherTrace.tracePatchPoints[otherIndex];
-				if (otherTraceCenterPoint.slice > maxSlice) break;
-				otherWindow = checkCreateMatchingWindow(otherTrace, otherTraceCenterPoint, centerPointType, stretchCorrelation, bestCorrelation);
-				if (otherWindow == null) continue;
-				if (debugCorrelationWindows)
-					correlationWindows[nCorrelationWindows++] = otherWindow;
-				if (otherWindow.stretchCorrelation > bestCorrelation)
-				{
-					matchingWindow = otherWindow;
-					bestCorrelation = otherWindow.stretchCorrelation;
-				}
-
-				if (!searchForMultipleWindowMatches || offset > near)
-					break; // if we found one inside near, try for a second but once outside near, break give us one or two windows
-			}
-			offset = 0;
-			// search up for one or two windows (two if first is within "near" slices of center
-			for (otherIndex = otherCenterIndex - 1; otherIndex > otherConnectedPointIndexAbove; otherIndex--, offset++)
-			{
-				PatchPoint otherTraceCenterPoint = otherTrace.tracePatchPoints[otherIndex];
-				if (otherTraceCenterPoint.slice < minSlice) break;
-				otherWindow = checkCreateMatchingWindow(otherTrace, otherTraceCenterPoint, centerPointType, stretchCorrelation, bestCorrelation);
-				if (otherWindow == null) continue;
-				if (debugCorrelationWindows)
-					correlationWindows[nCorrelationWindows++] = otherWindow;
-				if (otherWindow.stretchCorrelation > bestCorrelation)
-				{
-					matchingWindow = otherWindow;
-					bestCorrelation = otherWindow.stretchCorrelation;
-				}
-				if (!searchForMultipleWindowMatches || offset > near)
-					break;
-			}
-			if (debugCorrelationWindows && nCorrelationWindows > 1)
-			{
-				System.out.println("findMatchingWindows: " + nCorrelationWindows + " windows");
-				for (int n = 0; n < nCorrelationWindows; n++)
-					System.out.println(" window: " + n + correlationWindows[n].toString());
-			}
-			return matchingWindow;
-		}
-
-		CorrelationWindow checkCreateMatchingWindow(TracePoints otherTrace, PatchPoint otherTraceCenterPoint, byte centerPointType, float stretchCorrelation, float bestCorrelation)
-		{
-			if (centerPointType != otherTraceCenterPoint.pointType) return null;
-
-			CorrelationWindow otherWindow = new CorrelationWindow(otherTrace, otherTraceCenterPoint);
-			if (!otherWindow.initialize()) return null;
-			if (otherWindow.isCenterSliceOutsideWindow(centerSlice)) return null;
-			if (!matches(otherWindow, stretchCorrelation)) return null;
-			if (otherWindow.stretchCorrelation <= bestCorrelation) return null;
-			return otherWindow;
-		}
-
-		/** check the various correlation measures and return the otherWindow if it matches; otherwise return null */
-		boolean matches(CorrelationWindow otherWindow, float stretchCorrelation)
-		{
-			if (otherWindow.windowType != windowType) return false;
-			if (!pointTypesMatch(this, otherWindow)) return false;
-			// check correlation stretch
-			float stretchFactor;
-			if (windowType == WINDOW_BELOW)
-				stretchFactor = computePlusStretchFactor(otherWindow);
-			else if (windowType == WINDOW_ABOVE)
-				stretchFactor = computeMinusStretchFactor(otherWindow);
-			else
-				stretchFactor = (computePlusStretchFactor(otherWindow) + computeMinusStretchFactor(otherWindow))/2;
-			otherWindow.stretchCorrelation = stretchFactor;
-			return stretchFactor >= stretchCorrelation;
-		}
-
-		boolean pointTypesMatch(CorrelationWindow window, CorrelationWindow otherWindow)
-		{
-			byte above = window.pointAbove.pointType;
-			byte below = window.pointBelow.pointType;
-			byte otherAbove = otherWindow.pointAbove.pointType;
-			byte otherBelow = otherWindow.pointBelow.pointType;
-			if(above == otherAbove && below == otherBelow) return true;
-			if(checkInsertFalseZeroCrossings)
-			{
-				byte center = window.centerPointType;
-				byte otherCenter = otherWindow.centerPointType; // should be same as center
-				if (center != otherCenter)
-					StsException.systemError(this, "pointTypesMatch", "window.centerPointType && otherWindow.centerPointType don't match.");
-				if (center == POINT_MAXIMUM && isZeroPlus(above) && isZeroPlus(otherAbove) && isZeroMinus(below) && isZeroMinus(otherBelow))
-					return true;
-				if (center == POINT_MINIMUM && isZeroMinus(above) && isZeroMinus(otherAbove) && isZeroPlus(below) && isZeroPlus(otherBelow))
-					return true;
-			}
-			return false;
-		}
-
-		final boolean isZeroPlus(byte pointType) { return pointType == POINT_PLUS_ZERO_CROSSING || pointType == POINT_PLUS_FALSE_ZERO_CROSSING;}
-		final boolean isZeroMinus(byte pointType) { return pointType == POINT_MINUS_ZERO_CROSSING || pointType == POINT_MINUS_FALSE_ZERO_CROSSING;}
-		float computeMinusStretchFactor(CorrelationWindow otherWindow)
-		{
-			float minusStretchFactor = ((float) dSliceMinus) / otherWindow.dSliceMinus;
-			if (minusStretchFactor > 1.0f)
-				minusStretchFactor = 1 / minusStretchFactor;
-			return minusStretchFactor;
-		}
-
-		float computePlusStretchFactor(CorrelationWindow otherWindow)
-		{
-			float plusStretchFactor = ((float) dSlicePlus) / otherWindow.dSlicePlus;
-			if (plusStretchFactor > 1.0f)
-				plusStretchFactor = 1 / plusStretchFactor;
-			return plusStretchFactor;
-		}
-
-		boolean isCenterSliceOutsideWindow(int centerSlice)
-		{
-			return centerSlice < minSlice || centerSlice > maxSlice;
-		}
-
-		public String toString()
-		{
-			return "centerPoint: " + centerPoint.toString() + " correlation: " + stretchCorrelation;
-		}
 	}
 
 	public boolean initialize(StsModel model)
@@ -2091,43 +2372,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		otherTraces.add(otherTrace);
 	}
 
-	private float computeStretchCorrelation(CorrelationWindow newWindow, CorrelationWindow otherWindow)
-	{
-		if (newWindow == null || otherWindow == null) return 0.0f;
-
-		TracePoints traceNew = newWindow.trace;
-		int centerNew = newWindow.centerSlice;
-		int minNew = newWindow.minSlice;
-		int maxNew = newWindow.maxSlice;
-
-		TracePoints traceOther = otherWindow.trace;
-		int centerOther = otherWindow.centerSlice;
-		int minOther = otherWindow.minSlice;
-		int maxOther = otherWindow.maxSlice;
-
-		// translate and stretch/shrink pointsOther z values so they line up with pointsNew
-
-		int dSliceMinusOther = centerOther - minOther;
-		int dSliceMinusNew = centerNew - minNew;
-		float dSliceMinusOtherScalar = (float) dSliceMinusNew / dSliceMinusOther;
-		// if(dzMinusOtherScalar < minStretchLimit || dzMinusOtherScalar > maxStretchLimit) return 0.0f;
-
-		float minusStretchFactor = dSliceMinusOtherScalar;
-		if (minusStretchFactor > 1.0f)
-			minusStretchFactor = 1 / minusStretchFactor;
-
-		int dSlicePlusOther = maxOther - centerOther;
-		int dSlicePlusNew = maxNew - centerNew;
-		float dSlicePlusOtherScalar = (float) dSlicePlusNew / dSlicePlusOther;
-		// if(dzPlusOtherScalar < minStretchLimit || dzPlusOtherScalar > maxStretchLimit) return 0.0f;
-
-		float plusStretchFactor = dSlicePlusOtherScalar;
-		if (plusStretchFactor > 1.0f)
-			plusStretchFactor = 1 / plusStretchFactor;
-
-		return Math.min(minusStretchFactor, plusStretchFactor);
-	}
-
 	private StsPatchGrid getPatchGrid(int id)
 	{
 		StsPatchGrid patchGrid = rowGrids.get(id);
@@ -2220,11 +2464,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				// n++;
 				if (patchGrid.colMax < col) continue;
 
-				if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
-					gl.glLineWidth(2*getPatchVolumeClass().getEdgeWidth());
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+					gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 				patchGrid.drawCol(gl, col, x, yMin, yInc, colorscale, false, displayCurvature);
-				if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID);
-					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+				gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				// if (nFirst == -1) nFirst = n;
 			}
 			gl.glEnable(GL.GL_LIGHTING);
@@ -2245,13 +2489,13 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				if (patchGrid.rowMin > row) break;
 				// n++;
 				if (patchGrid.rowMax < row) continue;
-				if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
-					gl.glLineWidth(2*getPatchVolumeClass().getEdgeWidth());
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+					gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 				patchGrid.drawRow(gl, row, y, xMin, xInc, colorscale, false, displayCurvature);
-				if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID);
-					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+				gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				// if (nFirst == -1) nFirst = n;
-				if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) break;
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) break;
 			}
 			gl.glEnable(GL.GL_LIGHTING);
 		}
@@ -2290,11 +2534,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					if (patchGrid.rowMin > row) break;
 					if (patchGrid.rowMax < row) continue;
-					if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
-						gl.glLineWidth(2*getPatchVolumeClass().getEdgeWidth());
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+						gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 					patchGrid.drawRow(gl, row, dirCoordinate, xMin, xInc, colorscale, true, displayCurvature);
-					if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID);
-						gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				}
 			}
 			else if (dirNo == StsCursor3d.XDIR)
@@ -2314,11 +2558,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					if (patchGrid.colMin > col) break;
 					if (patchGrid.colMax < col) continue;
-					if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
-						gl.glLineWidth(2*getPatchVolumeClass().getEdgeWidth());
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+						gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 					patchGrid.drawCol(gl, col, dirCoordinate, yMin, yInc, colorscale, true, displayCurvature);
-					if(drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID);
-						gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				}
 			}
 		}
@@ -2733,7 +2977,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		float xline = getColNumFromCol(volumeCol);
 		StsMessageFiles.logMessage("Picked patch parent id: " + selectedPatch.id + " child id: " + selectedPatch.idFinal + " at iline: " + iline + " xline: " + xline);
 	/*
-        if(cursorPoint.dirNo == StsCursor3d.YDIR)
+		if(cursorPoint.dirNo == StsCursor3d.YDIR)
             StsMessageFiles.logMessage("     volumeRow correl: " + selectedPatch.getVolumeRowCorrel(volumeRow, volumeCol));
         else //dirNo == XDIR
             StsMessageFiles.logMessage("     volumeRow correl: " + selectedPatch.getVolumeColCorrel(volumeRow, volumeCol));

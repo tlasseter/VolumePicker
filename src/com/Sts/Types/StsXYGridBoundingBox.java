@@ -205,6 +205,16 @@ public class StsXYGridBoundingBox extends StsSerialize implements Cloneable
         colMax = Math.min(colMax, box.colMax);
     }
 
+	public int getAbsRow(int relativeRow)
+	{
+		return relativeRow + rowMin;
+	}
+
+	public int getAbsCol(int relativeCol)
+	{
+		return relativeCol + colMin;
+	}
+
     public String toString()
     {
         return new String("rowMin: " + rowMin + " rowMax: " + rowMax + " colMin: " + colMin + " colMax: " + colMax);

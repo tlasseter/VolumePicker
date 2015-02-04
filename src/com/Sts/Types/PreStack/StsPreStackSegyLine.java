@@ -165,7 +165,7 @@ public abstract class StsPreStackSegyLine extends StsPreStackLine
 //            segyData.readFileHeader();
 //			analyzeBinaryHdr(false);
             setStemname();
-   //         zDomain = segyFormat.getZDomainString();
+   //         zDomain = segyFormat.getStringForZDomain();
         }
 		catch(Exception e)
 		{

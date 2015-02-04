@@ -60,6 +60,14 @@ import com.Sts.Utilities.*;
 													 StsColor.PURPLE, StsColor.LIGHTBLUE,
 													 StsColor.BRONZE, StsColor.DARKTURQUOISE,
 													 StsColor.PINK, StsColor.AQUAMARINE, StsColor.YELLOW };
+
+	 /** this maps the false types to their equivalent types */
+	 public final static byte[] coercedPointTypes = { POINT_ORIGINAL,
+			 POINT_PLUS_ZERO_CROSSING, POINT_MAXIMUM, POINT_MINUS_ZERO_CROSSING, POINT_MINIMUM,
+			 POINT_MAXIMUM, POINT_MINIMUM,
+			 POINT_PLUS_ZERO_CROSSING, POINT_MINUS_ZERO_CROSSING,
+			 POINT_INTERPOLATED, POINT_FLAT_ZERO, POINT_ANY };
+
      public static double[][] tracePoints;
      public static byte[] tracePointTypes;
      public static final StsColor outsideMuteColor = StsColor.GRAY;

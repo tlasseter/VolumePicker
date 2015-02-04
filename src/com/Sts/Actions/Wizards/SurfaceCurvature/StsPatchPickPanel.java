@@ -51,6 +51,10 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     StsFloatFieldBean autoCorIncBean = new StsFloatFieldBean();
     StsFloatFieldBean minCorrelBean = new StsFloatFieldBean();
 
+	StsBooleanFieldBean useFalseTypesBean = new StsBooleanFieldBean();
+	StsBooleanFieldBean checkCycleSkipBean = new StsBooleanFieldBean();
+	StsBooleanFieldBean cycleSkipOnlyBean = new StsBooleanFieldBean();
+
     JLabel statusLbl = new JLabel("Pick Status...");
     // private float minCorrelation = defaultMinCorrel;
     public int corWavelength = defaultCorWavelength;
@@ -71,11 +75,15 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     public float autoCorMin = defaultAutoCorMin;
     /** iterative picking operation max correl */
     public float autoCorInc = defaultAutoCorInc;
+	public boolean useFalseTypes = true;
+	/** when closing a local box ij box, don't allow same patch at two different points on closing trace */
+	public boolean checkCycleSkips = false;
+	public boolean cycleSkipOnly = false;
 
     public static final String[] stopCriteriaNames = new String[]{"Stop", "Replace", "Stop if same Z"};
 
-    public byte pickType = StsPatchVolume.PICK_MIN_MAX;
-    public String pickTypeName = StsPatchVolume.pickTypeNames[StsPatchVolume.PICK_MAX];
+    public byte pickType = StsPatchVolume.PICK_ALL;
+    public String pickTypeName = StsPatchVolume.pickTypeNames[StsPatchVolume.PICK_ALL];
 
     public StsProgressBar progressBar = StsProgressBar.constructorWithInsetsAndCancel();
 
@@ -87,7 +95,9 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     static final String noCorrelString = "Correlation Range: not available.";
     static final String noPickDifString = "Pick Dif Range: not available.";
     static final String noWaveLengthString = "WaveLength Range: not available.";
-
+	static final String useFalseTypesTip = "Allow false types to correlate with true types (e.g., false Max and Max.";
+	static final String checkCycleSkipsTip = "When closing a local loop, don't allow a cycle skip.";
+	static final String cycleSkipOnlyTip = "DEBUG: only run the cycle skip check.";
     static public final float defaultAutoCorMax = 0.9f;
     static public final float defaultAutoCorMin = 0.4f;
     static public final float defaultAutoCorInc = 0.1f;
@@ -125,7 +135,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
             minPatchSizeBean.initialize(this, "minPatchSize", true, "Min allowable patch size:    ");
             minPatchSizeBean.setToolTipText("Minimum number of points allowed for a patch");
             runButton = new StsButton("Run", runButtonTip, this, "pickVolume");
- 
+
             isIterativeBean.initialize(this, "isIterative", "Iterative Processing");
             //isIterativeBean.setSelected(true);
             autoCorMaxBean.initialize(this, "autoCorMax", true, "Start Correlation: ");
@@ -138,7 +148,12 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 //            minCorrelBean.setValueAndRange(StsHorpick.defaultMinCorrel, 0.0f, 1.0f);
             minCorrelBean.setToolTipText("Minimum correlation criteria.");
 
-
+			useFalseTypesBean.initialize(this, "useFalseTypes", "Use false types");
+			useFalseTypesBean.setToolTipText(useFalseTypesTip);
+			checkCycleSkipBean.initialize(this, "checkCycleSkips", "Check loop cycle skips");
+			checkCycleSkipBean.setToolTipText(checkCycleSkipsTip);
+			cycleSkipOnlyBean.initialize(this, "cycleSkipOnly", "Cycle skip check only");
+			cycleSkipOnlyBean.setToolTipText(cycleSkipOnlyTip);
             buildPanel();
         }
         catch (Exception e)
@@ -166,12 +181,14 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
         pickBox.gbc.fill = GridBagConstraints.BOTH;
         pickBox.add(typeListBean);
         // pickBox.add(windowSizeBean);
-        pickBox.add(corWindowBean);
+        // pickBox.add(corWindowBean);
         pickBox.add(minAmpFractionBean);
-        pickBox.add(maxPickDifBean);
+        // pickBox.add(maxPickDifBean);
 //		pickBox.add(maxStretchBean);
         pickBox.add(minPatchSizeBean);
-
+		pickBox.add(useFalseTypesBean);
+		pickBox.add(checkCycleSkipBean);
+		pickBox.add(cycleSkipOnlyBean);
         StsJPanel operationsPanel = new StsJPanel();
         operationsPanel.gbc.fill = GridBagConstraints.HORIZONTAL;
         operationsPanel.add(gridEditPanel);
@@ -185,6 +202,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
         processBox.add(autoCorMinBean);
         processBox.add(autoCorIncBean);
         processBox.add(minCorrelBean);
+		minCorrelBean.setEditable(false);
         processBox.gbc.gridwidth = 2;
         processBox.add(runButton);
 
@@ -442,4 +460,37 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     {
         this.manualCorMin = manualCorMin;
     }
+
+	/** if true, use falseTypes (false max, min, +/- zero crossings */
+	public boolean getUseFalseTypes()
+	{
+		return useFalseTypes;
+	}
+
+	public void setUseFalseTypes(boolean useFalseTypes)
+	{
+		this.useFalseTypes = useFalseTypes;
+	}
+
+	/** when closing a local box ij box, don't allow same patch at two different points on closing trace */
+	public boolean getCheckCycleSkips()
+	{
+		return checkCycleSkips;
+	}
+
+	public void setCheckCycleSkips(boolean checkCycleSkips)
+	{
+		this.checkCycleSkips = checkCycleSkips;
+	}
+
+	/** For debugging: only run the cycle skip check */
+	public boolean isCycleSkipOnly()
+	{
+		return cycleSkipOnly;
+	}
+
+	public void setCycleSkipOnly(boolean cycleSkipOnly)
+	{
+		this.cycleSkipOnly = cycleSkipOnly;
+	}
 }
