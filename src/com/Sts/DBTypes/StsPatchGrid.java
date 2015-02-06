@@ -1,5 +1,6 @@
 package com.Sts.DBTypes;
 
+import com.Sts.Actions.Wizards.SurfaceCurvature.*;
 import com.Sts.DB.*;
 import com.Sts.Interfaces.*;
 import com.Sts.MVC.View3d.*;
@@ -86,17 +87,19 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	static final int largeInt = Integer.MAX_VALUE;
 
-	static final int NO_DEBUG = -1;
+	static public final boolean debug = StsPatchVolume.debug;
+	static public final int NO_DEBUG = -1;
 	/** various debugPatchGrid print of patches in rowGrid and prevRowGrid arrays; check if this is not -1 and prints if id matches this value.  Make this -1 if you want no debugPatchGrid prints. */
-	static public final int debugPatchInitialID = 10; //NO_DEBUG;
+	static public int debugPatchInitialID = NO_DEBUG;
 	/** debugPatchID may change if original patch is merged into a new one; when this occurs, set debugCurrentPatchID to new one and track it */
-	static int debugPatchID = debugPatchInitialID;
+	static int debugPatchID = NO_DEBUG;
 
-	static final int debugPointRow = 6; //NO_DEBUG;
-	static final int debugPointCol = 26; //NO_DEBUG;
-	static final int debugPointSlice = 616; //NO_DEBUG
-	static final public boolean debugPatchGrid = debugPatchInitialID != NO_DEBUG;
-	static final boolean debugPoint = debugPointRow != NO_DEBUG && debugPointCol != NO_DEBUG && debugPointSlice != NO_DEBUG;
+	static int debugPointRow = NO_DEBUG;
+	static int debugPointCol = NO_DEBUG;
+	static int debugPointSlice = NO_DEBUG;
+	static public boolean debugPatchGrid = false;
+	/** debugPoint is true if we have debugRow && debugCol set and either debugPatchGrid is set or debugSlice is set */
+	static boolean debugPoint;
 
 	public StsPatchGrid()
 	{
@@ -128,6 +131,17 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		if (debugPatchID != -1 && id == debugPatchID)
 			//if(debugPatchGrid())
 			StsException.systemDebug(this, "setup", "patch " + id + " initialized");
+	}
+
+	static public void initializeDebug(StsPatchPickPanel pickPanel)
+	{
+		debugPatchInitialID = pickPanel.patchId;
+		debugPatchID = debugPatchInitialID;
+		debugPatchGrid = debug && debugPatchInitialID != NO_DEBUG;
+		debugPointRow = pickPanel.pointRow;
+		debugPointCol = pickPanel.pointCol;
+		debugPointSlice = pickPanel.pointSlice;
+		debugPoint = debug && debugPointRow != NO_DEBUG && debugPointCol != NO_DEBUG && (debugPatchGrid || debugPointSlice != NO_DEBUG);
 	}
 
 	public boolean debug()
@@ -170,8 +184,8 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	 */
 	boolean mergePatchPoints(StsPatchGrid removedGrid)
 	{
-		if (debugPatchGrid && (id == debugPatchID || removedGrid.id == debugPatchID))
-			StsException.systemDebug(this, "mergePatchPoints", "merging patch id: " + removedGrid.id + " to patch id: " + id);
+		if (debug && debugPatchGrid && (id == debugPatchID || removedGrid.id == debugPatchID))
+			StsException.systemDebug(this, "mergePatchPoints", StsPatchVolume.iterLabel + "merging patch id: " + removedGrid.id + " to patch id: " + id);
 
 		RowColGrid union = rowColGridUnion(removedGrid); //union of this and newPatchGrid
 		StsPatchVolume.PatchPoint[][] newMergedPatchPoints = new StsPatchVolume.PatchPoint[union.nRows][union.nCols]; // create empty mergedPoints grid
@@ -180,7 +194,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		removedGrid.resetPatchPointsGrid(this);
 		resetPatchPoints(union, newMergedPatchPoints);
 		nPatchPoints += removedGrid.nPatchPoints;
-		if (debugPatchID != -1 && removedGrid.id == debugPatchID)
+		if (debugPatchID != NO_DEBUG && removedGrid.id == debugPatchID)
 			debugPatchID = id;
 		return true;
 	}
@@ -250,6 +264,10 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		try
 		{
 			if (!contains(patchPoint)) return false;
+			if(debug && debugPoint && (doDebugPoint(patchPoint)))
+				StsException.systemDebug(this, "patchPointOverlaps", StsPatchVolume.iterLabel + "patchPoint " + patchPoint.toString() +
+				" overlaps point " + getPatchPoint(patchPoint.row, patchPoint.col));
+
 			return getPatchPoint(patchPoint.row, patchPoint.col) != null;
 
 		}
@@ -264,8 +282,8 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	void addPatchPoint(StsPatchVolume.PatchPoint patchPoint)
 	{
 		// if (debugPatchGrid && id == debugPatchID)
-		if(debugPatchGrid && (doDebugPoint(patchPoint)))
-			StsException.systemDebug(this, "addPatchPoint", " patchPoint " + patchPoint.toString());
+		if(debug && debugPoint && (doDebugPoint(patchPoint)))
+			StsException.systemDebug(this, "addPatchPoint", StsPatchVolume.iterLabel + "patchPoint " + patchPoint.toString());
 
 		if (patchPoints == null)
 			initializePatchPoints(patchPoint);
@@ -324,8 +342,8 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	void copyResetRowColGrid(RowColGrid newRowColGrid)
 	{
-		if (debugPatchGrid && debugPatchID != -1 && id == debugPatchID)
-			StsException.systemDebug(this, "copyResetRowColGrid", "grid reset from " + rowColGrid + " to " + newRowColGrid);
+		if (debug && debugPatchGrid && id == debugPatchID)
+			StsException.systemDebug(this, "copyResetRowColGrid", StsPatchVolume.iterLabel + "grid reset from " + rowColGrid + " to " + newRowColGrid);
 		StsPatchVolume.PatchPoint[][] newPatchPoints = copyPatchPoints(newRowColGrid);
 		resetPatchPoints(newRowColGrid, newPatchPoints);
 	}
@@ -427,22 +445,24 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	public final void addRowCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
 	{
-		if(debugPatchGrid && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
-			StsException.systemDebug(this, "addRowCorrelation", "adding row correl to " + otherPatchPoint.toString());
+		if(debug && debugPoint && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
+			StsException.systemDebug(this, "addRowCorrelation", StsPatchVolume.iterLabel + "adding row correl to " + otherPatchPoint.toString());
 		otherPatchPoint.rowCorrel = correl;
 	}
 
 	public final void addColCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
 	{
-		if (debugPatchGrid && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
-			StsException.systemDebug(this, "addRowCorrelation", "adding row correl to " + otherPatchPoint.toString());
+		if (debug && debugPoint && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
+			StsException.systemDebug(this, "addColCorrelation", StsPatchVolume.iterLabel + "adding row correl to " + otherPatchPoint.toString());
 		otherPatchPoint.colCorrel = correl;
 	}
 
-	public final boolean doDebugPoint(StsPatchVolume.PatchPoint patchPoint)
+	public static final boolean doDebugPoint(StsPatchVolume.PatchPoint patchPoint)
 	{
-		if(debugPoint && patchPoint.row == debugPointRow && patchPoint.col == debugPointCol && patchPoint.slice == debugPointSlice)
-			return true;
+		if(!debugPoint) return false;
+		if(patchPoint.row != debugPointRow || patchPoint.col != debugPointCol) return false;
+		if(patchPoint.slice == debugPointSlice) return true;
+		if(debug && debugPatchGrid && (patchPoint.patchGrid == null || patchPoint.patchGrid.id != debugPatchID)) return false;
 		return false;
 	}
 
@@ -474,7 +494,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	private void initializeRowColGrid(RowColGrid newRowColGrid)
 	{
-		if (debugPatchID != -1 && id == debugPatchID)
+		if (debugPatchID != NO_DEBUG && id == debugPatchID)
 			//if(debugPatchGrid())
 			StsException.systemDebug(this, "initializeRowColGrid", "Reset rowColGrid from " + rowColGrid + " to " + newRowColGrid);
 		rowMin = newRowColGrid.rowMin;
@@ -517,7 +537,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	public void finish()
 	{
-		if (debugPatchGrid && id == debugPatchID)
+		if (debug && debugPatchGrid && id == debugPatchID)
 			StsException.systemDebug(this, "finish", "for patch " + toString());
 		pointsZ = new float[nRows][nCols];
 		rowCorrels = new float[nRows][nCols];

@@ -101,7 +101,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	/** correlate using falseTypes (e.g., a false Max matches a Max, etc) */
 	transient boolean useFalseTypes = false;
 	/** check that local loop doesn't cycle skip: if correls from prev row and prev col have same patch, allow only one connection point */
-	transient boolean checkCycleSkips = false;
+	transient boolean checkCycleSkips = true;
 	/** For debugging: only run the cycle skip check if true */
 	transient boolean cycleSkipOnly = false;
 	/** row currently being computed: used for debugPatchGrid print out only */
@@ -217,7 +217,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	static final float largeFloat = StsParameters.largeFloat;
 
 	/** debugPatchGrid prints showing row operations */
-	static final boolean debug = false;
+	static final boolean debug = true;
 	/** turn on timer for curvature operation */
 	static final boolean runTimer = false;
 	/** millisecond timer */
@@ -229,10 +229,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	/** search for multiple windows */
 	static final boolean searchForMultipleWindowMatches = true;
 	/** print patch operations and draw only this patch */
-	static final int debugPatchID = StsPatchGrid.debugPatchID; // 71;
-	static final boolean debugPatchGrid = debugPatchID != -1;
-	static final boolean drawPatchBold = debugPatchGrid && StsPatchGrid.debugPatchGrid;
+	static boolean drawPatchBold = debug && StsPatchGrid.debugPatchGrid; // StsPatchGrid.debugPatchGrid;
 	static final boolean debugCloneOK = true;
+
+	static public String iterLabel = "";
 
 	private static final long serialVersionUID = 1L;
 
@@ -267,12 +267,14 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		nPatchPointsMin = pickPanel.minPatchSize;
 		useFalseTypes = pickPanel.useFalseTypes;
 		checkCycleSkips = pickPanel.checkCycleSkips;
-		cycleSkipOnly = pickPanel.cycleSkipOnly;
+//		cycleSkipOnly = pickPanel.cycleSkipOnly;
 		isIterative = pickPanel.isIterative;
 		autoCorMax = pickPanel.autoCorMax;
 		autoCorMin = pickPanel.autoCorMin;
 		autoCorInc = pickPanel.autoCorInc;
 		manualCorMin = pickPanel.manualCorMin;
+
+		StsPatchGrid.initializeDebug(pickPanel);
 		initializeLists();
 
 		if (!isIterative)
@@ -444,27 +446,19 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			// If there are previous row and col traces, see if a point from each have the same patch;
 			// if so, check whether a newPoint exists on this trace which correlates with these existing points.
 			// If so, add it.
-			if (checkCycleSkips && row > 0 && col > 0) addCyclePatches(prevColTrace, prevRowTrace, autoCorMin);
+			// if (checkCycleSkips && row > 0 && col > 0) addForwardPatches(prevColTrace, prevRowTrace, autoCorMin);
 			// For each patchPoint, check previous traces for points which are same type and just above or below this new point
 			// and find which of these two possible prev trace points has the best correlation.
 			// If this correlation is above the minCorrelation, add this new point to the prev point patch.
 			// If the new point already has a patch (because it correlated with one of the other of the 4 otherTraces, then the addPatchPointToPatch
 			// will merge the two patches.
 
-			if(cycleSkipOnly) return;
+			// if(cycleSkipOnly) return;
 
-			for (int i = 0; i < nIterations; i++)
+			for (int iter = 0; iter < nIterations; iter++)
 			{
-				reinitializeTraceIndices(prevRowTrace, prevColTrace);
-				float minStretchCorrelation = stretchCorrelations[i];
-				for (int centerPointIndex = 0; centerPointIndex < nTracePatchPoints; centerPointIndex++)
-				{
-					PatchPoint centerPoint = tracePatchPoints[centerPointIndex];
-					if (!StsTraceUtilities.isMaxMinOrZero(centerPoint.getPointType())) continue;
-					CorrelationWindow window = constructCorrelationWindow(centerPoint);
-					if (window != null)
-						addTracePatch(window, prevColTrace, prevRowTrace, minStretchCorrelation);
-				}
+				if(checkCycleSkips) addForwardPatches(prevColTrace, prevRowTrace, stretchCorrelations[iter], iter);
+				addBackwardPatches(prevColTrace, prevRowTrace, stretchCorrelations[iter], iter);
 			}
 		}
 
@@ -478,13 +472,15 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 *  we use these two new connections.  If they don't match, we have a potential cycle skip.  Taking the window which has the
 		 *  highest correlation, compute the correlation coefficient between it and the other connection.  If this is ? minCorrelation,
 		 *  we use them; otherwise we ignore and move on.
-		 *
-		 * @param prevColTrace trace on prev row, same col which forms one leg of square loop
+		 *  @param prevColTrace trace on prev row, same col which forms one leg of square loop
 		 * @param prevRowTrace trace on prev col, same row which forms the other leg of square loop
-		 * @param minStretchCorrelation correlation required for acceptable connections
+		 * @param correlation correlation required for acceptable connections
+		 * @param iter current iteration
 		 */
-		private void addCyclePatches(TracePoints prevColTrace, TracePoints prevRowTrace, float minStretchCorrelation)
+		private void addForwardPatches(TracePoints prevColTrace, TracePoints prevRowTrace, float correlation, int iter)
 		{
+			if(prevColTrace == null || prevRowTrace == null) return;
+			iterLabel = "itF " + iter + " ";
 			reinitializeTraceIndices(prevRowTrace, prevColTrace);
 			PatchPointLinkList prevColConnectedPointList = prevColTrace.patchPointsList;
 			PatchPoint prevColConnectedPoint;
@@ -503,9 +499,9 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					if (prevRowWindow == null) continue;
 					int newCenterSlice = (prevColConnectedPoint.slice + prevRowConnectedPoint.slice) / 2;
 					PatchPoint newTraceCurrentPoint = nearestPatchPoint(newCenterSlice);
-					CorrelationWindow matchingColWindow = prevColWindow.findNewMatchingWindow(this, false, minStretchCorrelation);
+					CorrelationWindow matchingColWindow = prevColWindow.findNewMatchingWindow(this, false, correlation);
 					if (matchingColWindow == null) continue;
-					CorrelationWindow matchingRowWindow = prevRowWindow.findNewMatchingWindow(this, true, minStretchCorrelation);
+					CorrelationWindow matchingRowWindow = prevRowWindow.findNewMatchingWindow(this, true, correlation);
 					if (matchingRowWindow == null) continue;
 					Connection colConnection, rowConnection;
 					PatchPoint newPoint;
@@ -516,7 +512,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 						colConnection = matchingColWindow.addPatchConnection(prevColWindow, false);
 						rowConnection = matchingRowWindow.addPatchConnection(prevRowWindow, true);
 						newPoint = matchingColWindow.centerPoint;
-						processNewConnections(newPoint, colConnection, rowConnection);
+						processNewConnections(newPoint, colConnection, rowConnection, prevColTrace, prevRowTrace);
 						continue;
 					}
 					// matching windows on this trace aren't the same for both prev row and col windows
@@ -528,21 +524,35 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					float colRowCorrelation = matchingRowWindow.computeCorrelation(prevColWindow);
 					float rowColCorrelation = matchingColWindow.computeCorrelation(prevRowWindow);
 					// take the best of these and pair with corresponding other connection to create the two connections
-					if (colRowCorrelation > rowColCorrelation && colRowCorrelation > minStretchCorrelation)
+					if (colRowCorrelation > rowColCorrelation && colRowCorrelation > correlation)
 					{
 						colConnection = matchingRowWindow.addPatchConnection(prevColWindow, false);
 						rowConnection = matchingRowWindow.addPatchConnection(prevRowWindow, true);
 						newPoint = matchingRowWindow.centerPoint;
-						processNewConnections(newPoint, colConnection, rowConnection);
+						processNewConnections(newPoint, colConnection, rowConnection, prevColTrace, prevRowTrace);
 					}
-					else if (rowColCorrelation > minStretchCorrelation)
+					else if (rowColCorrelation > correlation)
 					{
 						rowConnection = matchingColWindow.addPatchConnection(prevRowWindow, true);
 						colConnection = matchingColWindow.addPatchConnection(prevColWindow, false);
 						newPoint = matchingColWindow.centerPoint;
-						processNewConnections(newPoint, colConnection, rowConnection);
+						processNewConnections(newPoint, colConnection, rowConnection, prevColTrace, prevRowTrace);
 					}
 				}
+			}
+		}
+
+		private void addBackwardPatches(TracePoints prevColTrace, TracePoints prevRowTrace, float correlation, int iter)
+		{
+			reinitializeTraceIndices(prevRowTrace, prevColTrace);
+			iterLabel = "itB " + iter + " ";
+			for (int centerPointIndex = 0; centerPointIndex < nTracePatchPoints; centerPointIndex++)
+			{
+				PatchPoint centerPoint = tracePatchPoints[centerPointIndex];
+				if (!StsTraceUtilities.isMaxMinOrZero(centerPoint.getPointType())) continue;
+				CorrelationWindow window = constructCorrelationWindow(centerPoint);
+				if (window != null)
+					addTracePatch(window, prevColTrace, prevRowTrace, correlation);
 			}
 		}
 
@@ -557,7 +567,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			if (prevRowTrace != null)
 				rowConnection = checkAddRowConnection(window, prevRowTrace, minStretchCorrelation);
 
-			processNewConnections(newPoint, colConnection, rowConnection);
+			processNewConnections(newPoint, colConnection, rowConnection, prevColTrace, prevRowTrace);
 		}
 
 		protected CorrelationWindow constructCorrelationWindow(PatchPoint centerPoint)
@@ -591,6 +601,36 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		final boolean isZeroMinus(byte pointType)
 		{
 			return pointType == POINT_MINUS_ZERO_CROSSING || pointType == POINT_MINUS_FALSE_ZERO_CROSSING;
+		}
+
+		Connection getConnectionAbove(boolean isRow)
+		{
+			return patchPointsList.getConnectionAbove(isRow);
+		}
+
+		Connection getConnectionBelow(boolean isRow)
+		{
+			return patchPointsList.getConnectionBelow(isRow);
+		}
+
+		PatchPoint getPointExclusiveBetween(PatchPoint point, PatchPoint pointAbove, PatchPoint pointBelow)
+		{
+			try
+			{
+				if(pointAbove == null || pointBelow == null) return null;
+				int indexAbove = pointAbove.traceIndex;
+				int indexBelow = pointBelow.traceIndex;
+				if(indexBelow - indexAbove <= 1) return null;
+				int index = point.traceIndex;
+				if (index <= indexAbove) return tracePatchPoints[indexAbove + 1];
+				else if (index >= indexBelow) return tracePatchPoints[indexBelow - 1];
+				else return point;
+			}
+			catch(Exception e)
+			{
+				StsException.outputWarningException(this, "getPointExclusiveBetween", e);
+				return null;
+			}
 		}
 
 		class CorrelationWindow
@@ -723,20 +763,31 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 			CorrelationWindow findOtherMatchingWindow(TracePoints otherTrace, boolean isRow, float minCorrelation)
 			{
-				// this is sliceIndex for centerPoint of this window for which we want to find a matchingWindow on otherTrace
-				int centerSlice = centerPoint.slice;
-				// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
-				PatchPoint otherCenterPoint = otherTrace.nearestPatchPoint(centerSlice);
-				int otherCenterIndex = otherCenterPoint.traceIndex;
+				if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint)))
+					StsException.systemDebug(this, "findOtherMatchingWindow", iterLabel + "window centerPoint " + centerPoint.toString());
 
-				PatchPoint otherConnectedPatchPointAbove = getOtherConnectedPatchPointAbove(isRow);
-				PatchPoint otherConnectedPatchPointBelow = getOtherConnectedPatchPointBelow(isRow);
-				int otherConnectedPointIndexAbove = otherConnectedPatchPointAbove.traceIndex;
-				int otherConnectedPointIndexBelow = otherConnectedPatchPointBelow.traceIndex;
-				otherCenterIndex = StsMath.limitBetweenExclusive(otherCenterIndex, otherConnectedPointIndexAbove, otherConnectedPointIndexBelow);
-				if (otherCenterIndex == StsParameters.nullInteger) return null;
+				try
+				{
+					// this is sliceIndex for centerPoint of this window for which we want to find a matchingWindow on otherTrace
+					int centerSlice = centerPoint.slice;
+					// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
+					PatchPoint otherCenterPoint = otherTrace.nearestPatchPoint(centerSlice);
+					//	int otherCenterIndex = otherCenterPoint.traceIndex;
 
-				return findMatchingWindow(otherTrace, otherCenterPoint, otherConnectedPointIndexAbove, otherConnectedPointIndexBelow, minCorrelation);
+					PatchPoint otherConnectedPatchPointAbove = getOtherConnectedPatchPointAbove(isRow);
+					// getConnectionAbove(isRow).otherPoint;
+					PatchPoint otherConnectedPatchPointBelow = getOtherConnectedPatchPointBelow(isRow);
+					// getConnectionBelow(isRow).otherPoint;
+					otherCenterPoint = otherTrace.getPointExclusiveBetween(otherCenterPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow);
+					if (otherCenterPoint == null) return null;
+
+					return findMatchingWindow(otherTrace, otherCenterPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow, minCorrelation);
+				}
+				catch(Exception e)
+				{
+					StsException.outputWarningException(this, "findOtherMatchingWindow", e);
+					return null;
+				}
 			}
 
 			/**
@@ -759,10 +810,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				int newConnectedPointIndexAbove = newConnectedPatchPointAbove.traceIndex;
 				int newConnectedPointIndexBelow = newConnectedPatchPointBelow.traceIndex;
 				int newCenterIndex = newStartPoint.traceIndex;
-				newCenterIndex = StsMath.limitBetweenExclusive(newCenterIndex, newConnectedPointIndexAbove, newConnectedPointIndexBelow);
-				if (newCenterIndex == StsParameters.nullInteger) return null;
 				PatchPoint newCenterPoint = newTrace.tracePatchPoints[newCenterIndex];
-				return findMatchingWindow(newTrace, newCenterPoint, newConnectedPointIndexAbove, newConnectedPointIndexBelow, minCorrelation);
+				return findMatchingWindow(newTrace, newCenterPoint, newConnectedPatchPointAbove, newConnectedPatchPointBelow, minCorrelation);
 			}
 
 			/**
@@ -773,17 +822,13 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			 * otherwise just check the one.
 			 * @param otherTrace trace we want to search for the best matching window to this one
 			 * @param otherStartPoint point on otherTrace which is starting point to search up and down for matching windows
-			 * @param otherConnectedPointIndexAbove tracePatchPoints index which is upper limit of search (last connectedPoint above: we don't want connection to cross it)
-			 * @param otherConnectedPointIndexBelow tracePatchPoints index which is lower limit of search (last connectedPoint below: we don't want connection to cross it)
+			 * @param otherConnectedPatchPointAbove patchPoint which is upper limit of search (last connectedPoint above: we don't want connection to cross it)
+			 * @param otherConnectedPatchPointBelow patchPoint which is lower limit of search (last connectedPoint below: we don't want connection to cross it)
 			 * @param minCorrelation minimum value used in matching windows @see matches()
 			 * @return best correlation window or null if none
 			 */
-			CorrelationWindow findMatchingWindow(TracePoints otherTrace, PatchPoint otherStartPoint, int otherConnectedPointIndexAbove, int otherConnectedPointIndexBelow, float minCorrelation)
+			CorrelationWindow findMatchingWindow(TracePoints otherTrace, PatchPoint otherStartPoint, PatchPoint otherConnectedPatchPointAbove, PatchPoint otherConnectedPatchPointBelow, float minCorrelation)
 			{
-				// sliceIndex for correlated point just above centerSlice on otherTrace otherTrace; search for matches down from here to correlatedPoint below
-				int startIndex = otherStartPoint.traceIndex;
-				int startSlice = otherStartPoint.slice;
-
 				CorrelationWindow matchingWindow = null; // this will be best matching window in otherTrace
 
 				int offset = 0;
@@ -799,6 +844,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 				try
 				{
+					otherStartPoint = otherTrace.getPointExclusiveBetween(otherStartPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow);
+					if(otherStartPoint == null) return null;
+					int startIndex = otherStartPoint.traceIndex;
+					int otherConnectedPointIndexAbove = otherConnectedPatchPointAbove.traceIndex;
+					int otherConnectedPointIndexBelow = otherConnectedPatchPointBelow.traceIndex;
 					// search down for one or two windows (two if first is within "near" slices of center
 					for (index = startIndex; index < otherConnectedPointIndexBelow; index++, offset++)
 					{
@@ -906,6 +956,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				float correlation = otherWindow.stretchCorrelation;
 				if (correlation < minLinkCorrel) return null;
 
+				if(connectionCrosses(otherWindow, isRow)) return null;
+
 				PatchPoint newPatchPoint = centerPoint;
 				PatchPoint otherPatchPoint = otherWindow.centerPoint;
 				double distance = Math.abs(otherPatchPoint.slice - newPatchPoint.slice);
@@ -927,7 +979,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					{
 						// if this newPatchPoint overlaps the otherPatchGrid, we can't add it;
 						// So create a new patch and add a clone of the otherPatchPoint
-						if (otherPatchGrid.patchPointOverlaps(newPatchPoint))
+									// try skipping for now...
+						if (otherPatchGrid.patchPointOverlaps(newPatchPoint)) // return null;
 						{
 							patchGrid = StsPatchGrid.construct(StsPatchVolume.this, newPatchPoint.pointType);
 							otherPatchPoint = otherPatchPoint.clone();
@@ -1013,6 +1066,24 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					return connection;
 				//else
 				//	return null;
+			}
+
+
+
+			boolean connectionCrosses(CorrelationWindow otherWindow, boolean isRow)
+			{
+				PatchPointLinkList patchPointsList = getTracePoints().patchPointsList;
+				PatchPoint otherCenterPoint = otherWindow.centerPoint;
+				Connection connectionAbove = patchPointsList.getConnectionAbove(isRow);
+				Connection connectionBelow = patchPointsList.getConnectionBelow(isRow);
+				if(otherCenterPoint.isAbove(connectionAbove.otherPoint) || otherCenterPoint.isBelow(connectionBelow.otherPoint))
+				{
+					if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint) || StsPatchGrid.doDebugPoint(otherCenterPoint)))
+						StsException.systemDebug(this, "connectionCrosses", iterLabel + " connection: otherPoint " + otherCenterPoint.toString()  + " to " +
+								centerPoint.toString() + " crosses.");
+					return true;
+				}
+				return false;
 			}
 
 			boolean pointTypesMatch(byte centerType, byte otherCenterType)
@@ -1115,21 +1186,38 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 * @param newPoint new point which is at the end of the two row and/or col connections; connection may have a clone of it
 		 * @param colConnection connection from the prevColPoint (same col, prev row) to this new point or its clone
 		 * @param rowConnection connection from the prevRowPoint (same row, prev col) to this new point or its clone
+		 * @param prevColTrace
+		 * @param prevRowTrace
 		 */
-		private void processNewConnections(PatchPoint newPoint, Connection colConnection, Connection rowConnection)
+		private void processNewConnections(PatchPoint newPoint, Connection colConnection, Connection rowConnection, TracePoints prevColTrace, TracePoints prevRowTrace)
 		{
-			if (colConnection != null)
+			try
 			{
-				splitPatchInterval(colConnection.point);
-				movePatchInterval(colConnection.point);
+				// if we have a connection to a newPoint, split the interval  on the new trace in order to bound connections below
+				// as we may have both row and col connections to the same point, only split it once
+				if (colConnection != null)
+				{
+					splitPatchInterval(colConnection.point);
+					movePatchInterval(colConnection.point);
+				}
+				else if (rowConnection != null)
+				{
+					splitPatchInterval(rowConnection.point);
+					movePatchInterval(rowConnection.point);
+				}
+				else // move the newTrace patchInterval down if this point has any connections (new or old)
+					movePatchInterval(newPoint);
+
+				// move the prev row and col trace patch intervals down
+				if (newPoint.colConnection != null)
+					if(prevColTrace != null && colConnection != null) prevColTrace.movePatchInterval(colConnection.otherPoint);
+				if (newPoint.rowConnection != null)
+					if(prevRowTrace != null && rowConnection != null) prevRowTrace.movePatchInterval(rowConnection.otherPoint);
 			}
-			else if (rowConnection != null)
+			catch(Exception e)
 			{
-				splitPatchInterval(rowConnection.point);
-				movePatchInterval(rowConnection.point);
+				StsException.outputWarningException(this, "processNewConnections", e);
 			}
-			else
-				movePatchInterval(newPoint);
 		}
 
 		private Connection checkAddRowConnection(CorrelationWindow window, TracePoints otherTrace, float minStretchCorrelation)
@@ -1149,6 +1237,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		Connection addConnection(boolean isRow, PatchPoint otherPatchPoint, PatchPoint patchPoint, float correlation)
 		{
 			Connection connection = new Connection(otherPatchPoint, patchPoint, correlation);
+			return addConnection(isRow, patchPoint, connection, correlation);
+		}
+
+		Connection addConnection(boolean isRow, PatchPoint patchPoint, Connection connection, float correlation)
+		{
 			if (isRow) patchPoint.rowConnection = connection;
 			else patchPoint.colConnection = connection;
 			return connection;
@@ -1349,7 +1442,27 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			 */
 			void insert(PatchPoint connectedPoint)
 			{
-				if (connectedPoint == connectedPointAbove || connectedPoint == connectedPointBelow) return;
+				if (connectedPoint == connectedPointAbove || connectedPoint == connectedPointBelow)
+				{
+					return;
+				}
+			/*
+				if(connectedPoint.slice < connectedPointAbove.slice || connectedPoint.slice > connectedPointBelow.slice)
+				{
+					StsException.systemDebug(this, "insert", "new connected point " + connectedPoint.toString() + " is not between above: " +
+						connectedPointAbove.toString() + " and " + connectedPointBelow.toString());
+					return;
+				}
+			*/
+				assert(connectedPointAbove.slice < connectedPointBelow.slice);
+
+				//TODO would like to update above and below in process rather than here
+				int slice = connectedPoint.slice;
+				while(slice < connectedPointAbove.slice)
+					connectedPointAbove = connectedPointAbove.prev;
+				while(slice > connectedPointBelow.slice)
+					connectedPointBelow = connectedPointBelow.next;
+
 				connectedPointAbove.next = connectedPoint;
 				connectedPoint.prev = connectedPointAbove;
 				connectedPoint.next = connectedPointBelow;
@@ -1377,6 +1490,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					n--;
 				}
 			}
+
 			/**
 			 * Search up from startPoint for a point which has a row or col Connection.
 			 * @param point point to start search from going up
@@ -1440,6 +1554,59 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					StsException.outputWarningException(this, "getConnectedPatchPointAbove", e);
 					return patchPointsList.last;
+				}
+			}
+
+			/**
+			 * rowConnections and colConnections have linked list of connections between this trace and the other row or col trace.
+			 * For each list, connectionAbove and connectionBelow are the connections bounding our search interval on this trace.
+			 * If isRow==true, return the patchPoint connected to the connectionAbove in rowConnections; otherwise
+			 * return the patchPoint connected to the connectionAbove in colConnections.
+			 * @param isRow point on this trace where we want to find/make a connection
+			 * @return PatchPoint on the other row or col trace for the connection above the current search interval
+			 */
+			private Connection getConnectionAbove(boolean isRow)
+			{
+				PatchPoint connectedPoint = this.connectedPointAbove;
+				if(connectedPoint == first) return first.getConnection(isRow);
+				Connection connection;
+				try
+				{
+					while (((connection = connectedPoint.getConnection(isRow)) == null) && connectedPoint.prev != first)
+						connectedPoint = connectedPoint.prev;
+					if(connection == null) return first.getConnection(isRow);
+					return connection;
+				}
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "getOtherConnectedPatchPointAbove", e);
+					return first.getConnection(isRow); // hack for now, don't allow exception!
+				}
+			}
+			/**
+			 * rowConnections and colConnections have linked list of connections between this trace and the other row or col trace.
+			 * For each list, connectionAbove and connectionBelow are the connections bounding our search interval on this trace.
+			 * If isRow==true, return the patchPoint connected to the connectionBelow in rowConnections; otherwise
+			 * return the patchPoint connected to the connectionBelow in colConnections.
+			 * @param isRow point on this trace where we want to find/make a connection
+			 * @return PatchPoint on the other row or col trace for the connection above the current search interval
+			 */
+			private Connection getConnectionBelow(boolean isRow)
+			{
+				PatchPoint connectedPoint = this.connectedPointBelow;
+				if(connectedPoint == last) return last.getConnection(isRow);
+				Connection connection = null;
+				try
+				{
+					while (((connection = connectedPoint.getConnection(isRow)) == null) && connectedPoint.next != last)
+						connectedPoint = connectedPoint.next;
+					if(connection == null) return last.getConnection(isRow);
+					return connection;
+				}
+				catch (Exception e)
+				{
+					StsException.outputWarningException(this, "getOtherConnectedPatchPointBelow", e);
+					return last.getConnection(isRow); // hack for now, don't allow exception!
 				}
 			}
 		}
@@ -1534,55 +1701,14 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			return currentPoint;
 		}
 
-		/**
-		 * rowConnections and colConnections have linked list of connections between this trace and the other row or col trace.
-		 * For each list, connectionAbove and connectionBelow are the connections bounding our search interval on this trace.
-		 * If isRow==true, return the patchPoint connected to the connectionAbove in rowConnections; otherwise
-		 * return the patchPoint connected to the connectionAbove in colConnections.
-		 * @param isRow point on this trace where we want to find/make a connection
-		 * @return PatchPoint on the other row or col trace for the connection above the current search interval
-		 */
 		private PatchPoint getOtherConnectedPatchPointAbove(boolean isRow)
 		{
-
-			PatchPoint connectionPointAbove = patchPointsList.connectedPointAbove;
-			Connection connection = null;
-			try
-			{
-				while (((connection = connectionPointAbove.getConnection(isRow)) == null) && connectionPointAbove.prev != null)
-					connectionPointAbove = connectionPointAbove.prev;
-				return connection.otherPoint;
-			}
-			catch (Exception e)
-			{
-				StsException.outputWarningException(this, "getOtherConnectedPatchPointAbove", e);
-				return patchPointsList.first; // hack for now, don't allow exception!
-			}
+			return patchPointsList.getConnectionAbove(isRow).otherPoint;
 		}
 
-		/**
-		 * rowConnections and colConnections have linked list of connections between this trace and the other row or col trace.
-		 * For each list, connectionAbove and connectionBelow are the connections bounding our search interval on this trace.
-		 * If isRow==true, return the patchPoint connected to the connectionBelow in rowConnections; otherwise
-		 * return the patchPoint connected to the connectionBelow in colConnections.
-		 * @param isRow point on this trace where we want to find/make a connection
-		 * @return PatchPoint on the other row or col trace for the connection above the current search interval
-		 */
 		private PatchPoint getOtherConnectedPatchPointBelow(boolean isRow)
 		{
-			PatchPoint connectionPointBelow = patchPointsList.connectedPointBelow;
-			Connection connection = null;
-			try
-			{
-				while (((connection = connectionPointBelow.getConnection(isRow)) == null) && connectionPointBelow.next != null)
-					connectionPointBelow = connectionPointBelow.next;
-				return connection.otherPoint;
-			}
-			catch (Exception e)
-			{
-				StsException.outputWarningException(this, "getOtherConnectedPatchPointBelow", e);
-				return patchPointsList.last; // hack for now, don't allow exception!
-			}
+			return patchPointsList.getConnectionBelow(isRow).otherPoint;
 		}
 	}
 
@@ -1647,10 +1773,9 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	{
 		int patchID = patchGrid.id;
 		if (patchGrid.rowGridAdded) return;
-		boolean debug = patchGrid.debug();
 		StsPatchGrid value = rowGrids.put(patchID, patchGrid); // if return is null, no value exists at this key
 		patchGrid.rowGridAdded = true;
-		if (debug)
+		if (debug && StsPatchGrid.debugPatchID == patchGrid.id)
 		{
 			if (value == null)
 				StsException.systemDebug(this, "checkAddPatchGridToRowGrids", "patch " + patchID + " added to rowGrids for row: " + row + " col: " + col);
@@ -1663,7 +1788,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	{
 		StsPatchGrid value;
 		int patchID = patchGrid.id;
-		boolean debug = StsPatchGrid.debugPatchID != -1 && patchID == StsPatchGrid.debugPatchID;
+		boolean debug = StsPatchGrid.debugPatchGrid && patchID == StsPatchGrid.debugPatchID;
 		value = prevRowGrids.remove(patchID);
 		if (debug)
 		{
@@ -1811,6 +1936,9 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		{
 			return col + row * nVolumeCols;
 		}
+
+		boolean isAbove(PatchPoint point) { return slice < point.slice; }
+		boolean isBelow(PatchPoint point) { return slice > point.slice; }
 
 		public String toString()
 		{
@@ -2464,10 +2592,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				// n++;
 				if (patchGrid.colMax < col) continue;
 
-				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 					gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 				patchGrid.drawCol(gl, col, x, yMin, yInc, colorscale, false, displayCurvature);
-				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 				gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				// if (nFirst == -1) nFirst = n;
 			}
@@ -2489,13 +2617,13 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				if (patchGrid.rowMin > row) break;
 				// n++;
 				if (patchGrid.rowMax < row) continue;
-				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 					gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 				patchGrid.drawRow(gl, row, y, xMin, xInc, colorscale, false, displayCurvature);
-				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 				gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				// if (nFirst == -1) nFirst = n;
-				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) break;
+				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) break;
 			}
 			gl.glEnable(GL.GL_LIGHTING);
 		}
@@ -2534,10 +2662,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					if (patchGrid.rowMin > row) break;
 					if (patchGrid.rowMax < row) continue;
-					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 						gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 					patchGrid.drawRow(gl, row, dirCoordinate, xMin, xInc, colorscale, true, displayCurvature);
-					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				}
 			}
@@ -2558,10 +2686,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					if (patchGrid.colMin > col) break;
 					if (patchGrid.colMax < col) continue;
-					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID)
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 						gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
 					patchGrid.drawCol(gl, col, dirCoordinate, yMin, yInc, colorscale, true, displayCurvature);
-					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchInitialID) ;
+					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				}
 			}
