@@ -17,10 +17,12 @@ public class StsXYGridBoundingBox extends StsSerialize implements Cloneable
     public int rowMax = -largeInt; // row at yMax
     public int colMin = largeInt; // col at xMin
     public int colMax = -largeInt; // col at xMax
+	public int nRows = 0;
+	public int nCols = 0;
 
-    static public final int largeInt = StsParameters.largeInt;
+	static public final int largeInt = StsParameters.largeInt;
 
-    public StsXYGridBoundingBox()
+	public StsXYGridBoundingBox()
     {
     }
 

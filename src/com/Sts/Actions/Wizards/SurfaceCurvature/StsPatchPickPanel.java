@@ -4,6 +4,7 @@ import com.Sts.Actions.Wizards.Seismic.*;
 import com.Sts.Actions.Wizards.*;
 import com.Sts.DBTypes.*;
 import com.Sts.MVC.*;
+import com.Sts.MVC.View3d.*;
 import com.Sts.UI.Beans.*;
 import com.Sts.UI.Progress.*;
 import com.Sts.UI.*;
@@ -29,8 +30,9 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 
     StsSeismicGridEditPanel gridEditPanel = new StsSeismicGridEditPanel();
     //volume patch output info
-    StsGroupBox operationsBox = new StsGroupBox("Volume Patch Setup");
-
+    // StsGroupBox operationsBox = new StsGroupBox("Volume Patch Setup");
+	StsGroupBox filterBox = new StsGroupBox("Patch filter parameters");
+	StsGroupBox debugBox = new StsGroupBox("Debug parameters");
     //control parameters
     StsGroupBox pickBox = new StsGroupBox("Volume Patch Parameters");
     StsComboBoxFieldBean typeListBean = new StsComboBoxFieldBean();
@@ -51,9 +53,18 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     StsFloatFieldBean autoCorIncBean = new StsFloatFieldBean();
     StsFloatFieldBean minCorrelBean = new StsFloatFieldBean();
 
+	StsBooleanFieldBean filterBean = new StsBooleanFieldBean();
+	StsIntFieldBean boxFilterWidthBean = new StsIntFieldBean();
+
 	StsBooleanFieldBean useFalseTypesBean = new StsBooleanFieldBean();
 	StsBooleanFieldBean checkCycleSkipBean = new StsBooleanFieldBean();
-	StsBooleanFieldBean cycleSkipOnlyBean = new StsBooleanFieldBean();
+	// StsBooleanFieldBean cycleSkipOnlyBean = new StsBooleanFieldBean();
+
+	StsBooleanFieldBean debugBean = new StsBooleanFieldBean();
+	StsIntFieldBean patchIdBean = new StsIntFieldBean();
+	StsIntFieldBean pointRowBean = new StsIntFieldBean();
+	StsIntFieldBean pointColBean = new StsIntFieldBean();
+	StsIntFieldBean pointSliceBean = new StsIntFieldBean();
 
     JLabel statusLbl = new JLabel("Pick Status...");
     // private float minCorrelation = defaultMinCorrel;
@@ -75,10 +86,17 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     public float autoCorMin = defaultAutoCorMin;
     /** iterative picking operation max correl */
     public float autoCorInc = defaultAutoCorInc;
+	public boolean filter = true;
+	public int boxFilterWidth = 1;
 	public boolean useFalseTypes = true;
 	/** when closing a local box ij box, don't allow same patch at two different points on closing trace */
 	public boolean checkCycleSkips = false;
-	public boolean cycleSkipOnly = false;
+	//public boolean cycleSkipOnly = false;
+	public boolean debug = false;
+	public int patchId = NO_DEBUG;
+	public int pointRow = NO_DEBUG;
+	public int pointCol = NO_DEBUG;
+	public int pointSlice = NO_DEBUG;
 
     public static final String[] stopCriteriaNames = new String[]{"Stop", "Replace", "Stop if same Z"};
 
@@ -95,9 +113,11 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     static final String noCorrelString = "Correlation Range: not available.";
     static final String noPickDifString = "Pick Dif Range: not available.";
     static final String noWaveLengthString = "WaveLength Range: not available.";
+	static final String filterString  = "Smmoth patches before drawing";
+	static final String boxFilterWidthString = "Width of box filter for smoothing (3x3 has width of 1, 5x5 has width of 2).";
 	static final String useFalseTypesTip = "Allow false types to correlate with true types (e.g., false Max and Max.";
 	static final String checkCycleSkipsTip = "When closing a local loop, don't allow a cycle skip.";
-	static final String cycleSkipOnlyTip = "DEBUG: only run the cycle skip check.";
+	//static final String cycleSkipOnlyTip = "DEBUG: only run the cycle skip check.";
     static public final float defaultAutoCorMax = 0.9f;
     static public final float defaultAutoCorMin = 0.4f;
     static public final float defaultAutoCorInc = 0.1f;
@@ -114,6 +134,8 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
     static public final float defaultMaxStretchWavelength = 0.25f;
     // static public final int defaultWindow = 21;
     static public final float defaultMaxAmpFraction = 0.01f;
+
+	static final int NO_DEBUG = StsPatchGrid.NO_DEBUG;
 
     public StsPatchPickPanel(StsWizard wizard, StsWizardStep wizardStep)
     {
@@ -148,12 +170,23 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 //            minCorrelBean.setValueAndRange(StsHorpick.defaultMinCorrel, 0.0f, 1.0f);
             minCorrelBean.setToolTipText("Minimum correlation criteria.");
 
+			filterBean.initialize(this, "filter", "Smooth box filter");
+			filterBean.setToolTipText(filterString);
+			boxFilterWidthBean.initialize(this, "boxFilterWidth", true, "Box filter width");
+			boxFilterWidthBean.setToolTipText(boxFilterWidthString);
+
 			useFalseTypesBean.initialize(this, "useFalseTypes", "Use false types");
 			useFalseTypesBean.setToolTipText(useFalseTypesTip);
 			checkCycleSkipBean.initialize(this, "checkCycleSkips", "Check loop cycle skips");
 			checkCycleSkipBean.setToolTipText(checkCycleSkipsTip);
-			cycleSkipOnlyBean.initialize(this, "cycleSkipOnly", "Cycle skip check only");
-			cycleSkipOnlyBean.setToolTipText(cycleSkipOnlyTip);
+			//cycleSkipOnlyBean.initialize(this, "cycleSkipOnly", "Cycle skip check only");
+			//cycleSkipOnlyBean.setToolTipText(cycleSkipOnlyTip);
+
+			debugBean.initialize(this, "debug", "Debug");
+			patchIdBean.initialize(this, "patchId", true, "Patch ID");
+			pointRowBean.initialize(this, "pointRow", true, "Point row");
+			pointColBean.initialize(this, "pointCol", true, "Point col");
+			pointSliceBean.initialize(this, "pointSlice", true, "Point slice");
             buildPanel();
         }
         catch (Exception e)
@@ -188,7 +221,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
         pickBox.add(minPatchSizeBean);
 		pickBox.add(useFalseTypesBean);
 		pickBox.add(checkCycleSkipBean);
-		pickBox.add(cycleSkipOnlyBean);
+		//pickBox.add(cycleSkipOnlyBean);
         StsJPanel operationsPanel = new StsJPanel();
         operationsPanel.gbc.fill = GridBagConstraints.HORIZONTAL;
         operationsPanel.add(gridEditPanel);
@@ -207,6 +240,21 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
         processBox.add(runButton);
 
         addEndRow(processBox);
+
+		filterBox.gbc.fill = GridBagConstraints.HORIZONTAL;
+		filterBox.add(filterBean);
+		filterBox.add(boxFilterWidthBean);
+
+		addEndRow(filterBox);
+
+		debugBox.gbc.fill = GridBagConstraints.HORIZONTAL;
+		debugBox.add(debugBean);
+		debugBox.add(patchIdBean);
+		debugBox.add(pointRowBean);
+		debugBox.add(pointColBean);
+		debugBox.add(pointSliceBean);
+
+		addEndRow(debugBox);
 
         addEndRow(progressBar);
 
@@ -483,14 +531,90 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 		this.checkCycleSkips = checkCycleSkips;
 	}
 
-	/** For debugging: only run the cycle skip check */
-	public boolean isCycleSkipOnly()
+	public boolean getDebug()
 	{
-		return cycleSkipOnly;
+		return debug;
 	}
 
-	public void setCycleSkipOnly(boolean cycleSkipOnly)
+	public void setDebug(boolean debug)
 	{
-		this.cycleSkipOnly = cycleSkipOnly;
+		this.debug = debug;
 	}
+
+	public int getPatchId()
+	{
+		return patchId;
+	}
+
+	public void setPatchId(int patchId)
+	{
+		this.patchId = patchId;
+	}
+
+	public int getPointRow()
+	{
+		return pointRow;
+	}
+
+	public void setPointRow(int pointRow)
+	{
+		this.pointRow = pointRow;
+	}
+
+	public int getPointCol()
+	{
+		return pointCol;
+	}
+
+	public void setPointCol(int pointCol)
+	{
+		this.pointCol = pointCol;
+	}
+
+	public int getPointSlice()
+	{
+		return pointSlice;
+	}
+
+	public void setPointSlice(int pointSlice)
+	{
+		this.pointSlice = pointSlice;
+	}
+
+	/** smooth patch surfaces with box filter */
+	public boolean getFilter()
+	{
+		return filter;
+	}
+
+	public void setFilter(boolean filter)
+	{
+		this.filter = filter;
+		wizard.getPatchVolume().setFilter(filter);
+		wizard.model.repaintViews(StsView3d.class);
+	}
+
+	/** box filter width (3x3 filter has width of 1, 5x5 has width of 2 */
+	public int getBoxFilterWidth()
+	{
+		return boxFilterWidth;
+	}
+
+	public void setBoxFilterWidth(int boxFilterWidth)
+	{
+		this.boxFilterWidth = boxFilterWidth;
+		wizard.getPatchVolume().setBoxFilterWidth(boxFilterWidth);
+		wizard.model.repaintViews(StsView3d.class);
+	}
+
+	/** For debugging: only run the cycle skip check */
+	//public boolean isCycleSkipOnly()
+	//{
+	//	return cycleSkipOnly;
+	//}
+
+	//public void setCycleSkipOnly(boolean cycleSkipOnly)
+	//{
+	//	this.cycleSkipOnly = cycleSkipOnly;
+	//}
 }

@@ -32,6 +32,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	protected StsHistogram histogram;
 	protected StsSeismicVolume seismicVolume;
 	protected String seismicName;
+	protected boolean filter = false;
+	protected int boxFilterWidth = 1;
 	transient public int nInterpolatedSlices;
 	transient public float interpolatedZInc;
 	transient public int interpolatedSliceMin;
@@ -217,7 +219,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 	static final float largeFloat = StsParameters.largeFloat;
 
 	/** debugPatchGrid prints showing row operations */
-	static final boolean debug = true;
+	static final boolean debug = false;
 	/** turn on timer for curvature operation */
 	static final boolean runTimer = false;
 	/** millisecond timer */
@@ -310,9 +312,12 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		initializeSliceInterpolation();
 
 		int croppedRowMin = croppedBoundingBox.rowMin;
+		int croppedRowMax = croppedBoundingBox.rowMax;
 		int croppedColMin = croppedBoundingBox.colMin;
+		int croppedColMax = croppedBoundingBox.colMax;
 		int croppedSliceMin = croppedBoundingBox.sliceMin;
-		int nCroppedSlices = croppedBoundingBox.sliceMax - croppedSliceMin + 1;
+		int croppedSliceMax = croppedBoundingBox.sliceMax;
+		int nCroppedSlices = croppedSliceMax - croppedSliceMin + 1;
 		int nVolSlices = seismicVolume.nSlices;
 		float[] traceValues = new float[nCroppedSlices];
 
@@ -320,7 +325,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		{
 			// row & col refer to the row and col in a croppedVolume over which picker is to run
 			// volRow & volCol define the actual row and col in the volume (used only for reference)
-			for (row = 0, volRow = croppedRowMin; row < nRows; row++, volRow++)
+			for (row = 0, volRow = croppedRowMin; volRow <= croppedRowMax; row++, volRow++)
 			{
 				//statusArea.setProgress(row*40.f/nRows);
 				TracePoints[] prevRowTracesPoints = rowTracePoints;
@@ -331,13 +336,13 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				FloatBuffer rowFloatBuffer = seismicVolume.getRowPlaneFloatBuffer(volRow, croppedColMin);
 				if (rowFloatBuffer == null) return;
 				// if(croppedColMin > 0) rowFloatBuffer.position(croppedColMin * nVolSlices);
-				for (col = 0, volCol = croppedColMin; col < nCols; col++, volCol++)
+				for (col = 0, volCol = croppedColMin; volCol <= croppedColMax; col++, volCol++)
 				{
 					// StsException.systemDebug(this, "constructPatchVolume", "col loop, col: " + col);
-					rowFloatBuffer.position(volCol * nSlices + croppedSliceMin);
+					rowFloatBuffer.position(volCol * nVolSlices + croppedSliceMin);
 					rowFloatBuffer.get(traceValues);
 
-					TracePoints tracePoints = new TracePoints(row, col, traceValues, pickType, nSlices, croppedSliceMin, nVolSlices);
+					TracePoints tracePoints = new TracePoints(row, col, traceValues, pickType);
 					rowTracePoints[col] = tracePoints;
 					// prevColTracePoints are tracePoints in prev row & same col
 					TracePoints prevColTracePoints = null;
@@ -369,6 +374,26 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		}
 	}
 
+	public boolean setFilter()
+	{
+		return filter;
+	}
+
+	public void setFilter(boolean filter)
+	{
+		this.filter = filter;
+	}
+
+	public int getBoxFilterWidth()
+	{
+		return boxFilterWidth;
+	}
+
+	public void setBoxFilterWidth(int boxFilterWidth)
+	{
+		this.boxFilterWidth = boxFilterWidth;
+	}
+
 	class TracePoints
 	{
 		byte pickType;
@@ -396,33 +421,27 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 		 * @param col volume col of this trace
 		 * @param traceValues original seismic values for this trace
 		 * @param pickType pick type we are searching for (all, min, max, +/- zero-crossing; determines which events to pick
-		 * @param nSlices number of total slices in this volume
-		 * @param volSliceMin 0 or cropped volume slice min
-		 * @param nVolSlices nSlices in volume or cropped volume
 		 */
-		TracePoints(int row, int col, float[] traceValues, byte pickType, int nSlices, int volSliceMin, int nVolSlices)
+		TracePoints(int row, int col, float[] traceValues, byte pickType)
 		{
 			this.pickType = pickType;        // to match StsTraceUtilities.POINT...
 			this.row = row;
 			this.col = col;
 			// tracePoints - uniform cubic interpolation of traceValues
 			float[] tracePoints = StsTraceUtilities.computeCubicInterpolatedPoints(traceValues, nInterpolationIntervals);
-			float z = zMin;
+			float z = croppedBoundingBox.zMin;
 			if (tracePoints == null) return;
 			int nTracePoints = tracePoints.length;
 			tracePatchPoints = new PatchPoint[nTracePoints];
-			volSliceMin *= nInterpolationIntervals;
-			nVolSlices = (nVolSlices - 1) * nInterpolationIntervals + 1;
 			int nTracePatchPoint = 0;
+			byte[] tracePointTypes = StsTraceUtilities.getPointTypes(tracePoints, useFalseTypes);
 			for (int n = 0; n < nTracePoints; n++, z += interpolatedZInc)
 			{
-				byte tracePointType = StsTraceUtilities.getPointType(tracePoints, n);
+				byte tracePointType = tracePointTypes[n];
 				if (StsTraceUtilities.isMaxMinZeroOrFalseMaxMin(tracePointType))
 					tracePatchPoints[nTracePatchPoint] = new PatchPoint(row, col, n, z, tracePoints[n], tracePointType, nTracePatchPoint++);
 			}
 			nTracePatchPoints = nTracePatchPoint;
-			if (useFalseTypes)
-				checkInsertFalseZeroCrossings(tracePoints);
 			tracePatchPoints = (PatchPoint[]) StsMath.trimArray(tracePatchPoints, nTracePatchPoints);
 			initializePatchPointsList();
 		}
@@ -763,9 +782,6 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 			CorrelationWindow findOtherMatchingWindow(TracePoints otherTrace, boolean isRow, float minCorrelation)
 			{
-				if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint)))
-					StsException.systemDebug(this, "findOtherMatchingWindow", iterLabel + "window centerPoint " + centerPoint.toString());
-
 				try
 				{
 					// this is sliceIndex for centerPoint of this window for which we want to find a matchingWindow on otherTrace
@@ -778,8 +794,8 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					// getConnectionAbove(isRow).otherPoint;
 					PatchPoint otherConnectedPatchPointBelow = getOtherConnectedPatchPointBelow(isRow);
 					// getConnectionBelow(isRow).otherPoint;
-					otherCenterPoint = otherTrace.getPointExclusiveBetween(otherCenterPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow);
-					if (otherCenterPoint == null) return null;
+					//otherCenterPoint = otherTrace.getPointExclusiveBetween(otherCenterPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow);
+					//if (otherCenterPoint == null) return null;
 
 					return findMatchingWindow(otherTrace, otherCenterPoint, otherConnectedPatchPointAbove, otherConnectedPatchPointBelow, minCorrelation);
 				}
@@ -833,7 +849,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 				int offset = 0;
 				int index;
-				PatchPoint otherTraceCenterPoint;
+				PatchPoint otherTraceCenterPoint = null;
 				CorrelationWindow window;
 
 				CorrelationWindow[] correlationWindows;
@@ -896,6 +912,11 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 						for (int n = 0; n < nCorrelationWindows; n++)
 							System.out.println(" window: " + n + correlationWindows[n].toString());
 					}
+
+					if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint) || StsPatchGrid.doDebugPoint(otherTraceCenterPoint)))
+						StsException.systemDebug(this, "findMatchingWindow", iterLabel + " centerPoint " + centerPoint.toString() +
+						" otherCenterPoint " + otherTraceCenterPoint.toString());
+
 					return matchingWindow;
 				}
 				catch (Exception e)
@@ -964,6 +985,10 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 
 				StsPatchGrid otherPatchGrid = otherPatchPoint.getPatchGrid();
 				StsPatchGrid newPatchGrid = newPatchPoint.getPatchGrid();
+
+				if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(newPatchPoint) || StsPatchGrid.doDebugPoint(otherPatchPoint)))
+					StsException.systemDebug(this, "addPatchConnection", StsPatchVolume.iterLabel + " point " +
+							newPatchPoint.toString() + " to " + otherPatchPoint.toString());
 
 				// normally we can insert a new connectedPoint in the trace patchPointsList and split the connected interval;
 				// but if we have cloned this new point and it is already connected, don't add/split the trace again
@@ -1073,17 +1098,25 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			boolean connectionCrosses(CorrelationWindow otherWindow, boolean isRow)
 			{
 				PatchPointLinkList patchPointsList = getTracePoints().patchPointsList;
-				PatchPoint otherCenterPoint = otherWindow.centerPoint;
 				Connection connectionAbove = patchPointsList.getConnectionAbove(isRow);
 				Connection connectionBelow = patchPointsList.getConnectionBelow(isRow);
-				if(otherCenterPoint.isAbove(connectionAbove.otherPoint) || otherCenterPoint.isBelow(connectionBelow.otherPoint))
-				{
-					if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint) || StsPatchGrid.doDebugPoint(otherCenterPoint)))
-						StsException.systemDebug(this, "connectionCrosses", iterLabel + " connection: otherPoint " + otherCenterPoint.toString()  + " to " +
-								centerPoint.toString() + " crosses.");
-					return true;
-				}
-				return false;
+				PatchPoint otherCenterPoint = otherWindow.centerPoint;
+
+				Connection connection = new Connection(otherCenterPoint, centerPoint);
+				if (!connectionsCross(connection, connectionAbove) && !connectionsCross(connection, connectionBelow))
+					return false;
+
+				if(debug && StsPatchGrid.debugPoint && (StsPatchGrid.doDebugPoint(centerPoint) || StsPatchGrid.doDebugPoint(otherCenterPoint)))
+					StsException.systemDebug(this, "connectionCrosses", StsPatchVolume.iterLabel + "connection from " +
+							centerPoint.toString() + " to " + otherCenterPoint.toString());
+
+				return true;
+			}
+
+			boolean connectionsCross(Connection c1, Connection c2)
+			{
+				int crosses = StsMath.signProduct(c1.point.slice - c2.point.slice, c1.otherPoint.slice - c2.otherPoint.slice);
+				return crosses < 0;
 			}
 
 			boolean pointTypesMatch(byte centerType, byte otherCenterType)
@@ -2342,8 +2375,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				gridList.add(patchGrid);
 			}
 		}
-		if (StsPatchVolume.debug)
-			StsException.systemDebug(this, "addRemainingGrids", "added " + patchGrids.length + " grids remaining.");
+		StsException.systemDebug(this, "addRemainingGrids", "added " + patchGrids.length + " grids remaining.");
 	}
 
 	public void setCroppedBoundingBox(StsCroppedBoundingBox croppedBoundingBox)
@@ -2553,8 +2585,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 			}
 			prevRowGrids.remove(patchGrid.id);
 		}
-		if (debug)
-			StsException.systemDebug(this, "processPrevRowGrids", "prev row: " + (row - 1) + " added " + nDisconnectedGrids + " disconnected grids");
+		StsException.systemDebug(this, "processPrevRowGrids", "prev row: " + (row - 1) + " added " + nDisconnectedGrids + " disconnected grids");
 	}
 
 	public StsColorscale getCurvatureColorscale()
@@ -2619,7 +2650,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				if (patchGrid.rowMax < row) continue;
 				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 					gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
-				patchGrid.drawRow(gl, row, y, xMin, xInc, colorscale, false, displayCurvature);
+				patchGrid.drawRow(gl, row, y, xMin, xInc, colorscale, false, displayCurvature, filter, boxFilterWidth);
 				if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 				gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				// if (nFirst == -1) nFirst = n;
@@ -2664,7 +2695,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 					if (patchGrid.rowMax < row) continue;
 					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID)
 						gl.glLineWidth(2 * getPatchVolumeClass().getEdgeWidth());
-					patchGrid.drawRow(gl, row, dirCoordinate, xMin, xInc, colorscale, true, displayCurvature);
+					patchGrid.drawRow(gl, row, dirCoordinate, xMin, xInc, colorscale, true, displayCurvature, setFilter(), getBoxFilterWidth());
 					if (drawPatchBold && patchGrid.id == StsPatchGrid.debugPatchID) ;
 					gl.glLineWidth(getPatchVolumeClass().getEdgeWidth());
 				}
@@ -2762,7 +2793,7 @@ public class StsPatchVolume extends StsSeismicBoundingBox implements StsTreeObje
 				{
 					//if (n == 146)
 					//System.out.println("draw vox row "+n+" "+patchGrid.colMin+" "+patchGrid.colMax+" "+y);
-					patchGrid.drawRow(gl, n, y, xMin, xInc, colorscale, is3d, displayCurvature);
+					patchGrid.drawRow(gl, n, y, xMin, xInc, colorscale, is3d, displayCurvature, setFilter(), getBoxFilterWidth());
 					y += yInc;
 				}
 			}

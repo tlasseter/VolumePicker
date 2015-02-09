@@ -36,9 +36,6 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	float zMin = StsParameters.largeFloat;
 	float zMax = -StsParameters.largeFloat;
 
-	int nRows = 0;
-	int nCols = 0;
-
 	float[][] pointsZ;
 	float[][] rowCorrels;
 	float[][] colCorrels;
@@ -87,19 +84,28 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 
 	static final int largeInt = Integer.MAX_VALUE;
 
+	/*---------------------------- SYSTEM DEBUG FLAGS (DON'T EDIT) ---------------------------------------------------*/
+	/** a static final: if false, all blocks bounded by this boolean will not be compiled or checked */
 	static public final boolean debug = StsPatchVolume.debug;
+	/** standard no-debug flag */
 	static public final int NO_DEBUG = -1;
+	/** patchPoint patch debug. This will be set to true if debug==true and debugPatchInitialID is set.  */
+	static public boolean debugPatchGrid;
+	/** debugPoint is true if we have debugRow && debugCol set and either debugPatchGrid is set or debugSlice is set */
+	static boolean debugPoint;
+	/*---------------------------- USER DEBUG FLAGS (SET IN PatchPickPanel GUI (DON't EDIT) --------------------------*/
 	/** various debugPatchGrid print of patches in rowGrid and prevRowGrid arrays; check if this is not -1 and prints if id matches this value.  Make this -1 if you want no debugPatchGrid prints. */
 	static public int debugPatchInitialID = NO_DEBUG;
 	/** debugPatchID may change if original patch is merged into a new one; when this occurs, set debugCurrentPatchID to new one and track it */
 	static int debugPatchID = NO_DEBUG;
-
+	/** patchPoint row debug; used when row & ool and either slice or patchID are set. Set if you want a specific row & col at either a slice or patch debugged. */
 	static int debugPointRow = NO_DEBUG;
+	/** patchPoint col debug; used when row & ool and either slice or patchID are set. Set if you want a specific row & col at either a slice or patch debugged.  */
 	static int debugPointCol = NO_DEBUG;
+	/** patchPoint slice debug. Set if you want a specific row & col & slice debugged.  */
 	static int debugPointSlice = NO_DEBUG;
-	static public boolean debugPatchGrid = false;
-	/** debugPoint is true if we have debugRow && debugCol set and either debugPatchGrid is set or debugSlice is set */
-	static boolean debugPoint;
+	/*----------------------------------------------------------------------------------------------------------------*/
+
 
 	public StsPatchGrid()
 	{
@@ -264,12 +270,11 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		try
 		{
 			if (!contains(patchPoint)) return false;
+			if(getPatchPoint(patchPoint.row, patchPoint.col) == null) return false;
 			if(debug && debugPoint && (doDebugPoint(patchPoint)))
 				StsException.systemDebug(this, "patchPointOverlaps", StsPatchVolume.iterLabel + "patchPoint " + patchPoint.toString() +
-				" overlaps point " + getPatchPoint(patchPoint.row, patchPoint.col));
-
-			return getPatchPoint(patchPoint.row, patchPoint.col) != null;
-
+						" overlaps point " + getPatchPoint(patchPoint.row, patchPoint.col));
+			return true;
 		}
 		catch (Exception e)
 		{
@@ -460,7 +465,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	public static final boolean doDebugPoint(StsPatchVolume.PatchPoint patchPoint)
 	{
 		if(!debugPoint) return false;
-		if(patchPoint.row != debugPointRow || patchPoint.col != debugPointCol) return false;
+		if(patchPoint == null || patchPoint.row != debugPointRow || patchPoint.col != debugPointCol) return false;
 		if(patchPoint.slice == debugPointSlice) return true;
 		if(debug && debugPatchGrid && (patchPoint.patchGrid == null || patchPoint.patchGrid.id != debugPatchID)) return false;
 		return false;
@@ -758,7 +763,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		return nValuePatchPoints > 0;
 	}
 
-	public void drawRow(GL gl, int volumeRow, float y, float xMin, float xInc, StsColorscale colorscale, boolean is3d, boolean displayCurvature)
+	public void drawRow(GL gl, int volumeRow, float y, float xMin, float xInc, StsColorscale colorscale, boolean is3d, boolean displayCurvature, boolean smooth, int boxFilterWidth)
 	{
 		boolean lineStarted = false;
 		float z;
@@ -769,6 +774,12 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		{
 			float x = xMin + colMin * xInc;
 			int row = volumeRow - rowMin;
+			float[] rowZ;
+			if(smooth)
+				rowZ = boxFilter2dRow(pointsZ, row, boxFilterWidth, nullValue);
+			else
+				rowZ = pointsZ[row];
+
 			gl.glDepthFunc(GL.GL_LEQUAL);
 			// gl.glLineStipple(1, StsGraphicParameters.dottedLine);
 			boolean displayCurvatureColor = (curvature != null && displayCurvature);
@@ -776,7 +787,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 				StsTraceUtilities.getPointTypeColor(patchType).setGLColor(gl);
 			for (col = 0; col < nCols; col++, x += xInc)
 			{
-				z = pointsZ[row][col];
+				z = rowZ[col];
 				if (z != nullValue)
 				{
 					if (displayCurvatureColor)
@@ -819,6 +830,98 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		{
 			if (lineStarted) gl.glEnd();
 			// if(drawingDotted)gl.glDisable(GL.GL_LINE_STIPPLE);
+		}
+	}
+
+	float[] boxFilter2dRow(float[][] values, int row, int filterWidth, float nullValue)
+	{
+		FilterVector center = new FilterVector(values[row], nullValue);
+		int sideRow;
+		for(int i = 0; i < filterWidth; i++)
+		{
+			// add plus side rows
+			sideRow = row + i + 1;
+			if (sideRow < nRows)
+			{
+				FilterVector side = new FilterVector(values[sideRow], nullValue);
+				center.add(side);
+			}
+			sideRow = row - i - 1;
+			if (sideRow >= 0)
+			{
+				FilterVector side = new FilterVector(values[sideRow], nullValue);
+				center.add(side);
+			}
+			center.sum(filterWidth);
+		}
+		return center.average();
+	}
+
+	class FilterVector
+	{
+		float[] values;
+		int[] count;
+		int nValues;
+
+		FilterVector(float[] values, float nullValue)
+		{
+			this.nValues = values.length;
+			this.values = new float[nValues];
+			count = new int[nValues];
+			for(int n = 0; n < nValues; n++)
+			{
+				if (values[n] != nullValue)
+				{
+					count[n] = 1;
+					this.values[n] = values[n];
+				}
+			}
+		}
+
+		FilterVector(FilterVector vector)
+		{
+			nValues = vector.nValues;
+			values = Arrays.copyOf(vector.values, nValues);
+			count = Arrays.copyOf(vector.count, nValues);
+		}
+
+		void add(FilterVector side)
+		{
+			for(int i = 0; i < nValues; i++)
+			{
+				values[i] += side.values[i];
+				count[i] += side.count[i];
+			}
+		}
+
+		void sum(int filterWidth)
+		{
+			FilterVector center = new FilterVector(this);
+			for(int i = 0; i < filterWidth; i++)
+				add(center, i+1);
+		}
+
+		void add(FilterVector shift, int offset)
+		{
+			//  add values to right of position
+			for(int i = offset; i < nValues; i++)
+			{
+				values[i-offset] += shift.values[i];
+				count[i-offset] += shift.count[i];
+			}
+			// add values to left of position
+			for(int i = 0; i < nValues-offset; i++)
+			{
+				values[i+offset] += shift.values[i];
+				count[i+offset] += shift.count[i];
+			}
+		}
+
+		float[] average()
+		{
+			for(int n = 0; n < nValues; n++)
+				if(count[n] > 0) values[n] /= count[n];
+			return values;
 		}
 	}
 

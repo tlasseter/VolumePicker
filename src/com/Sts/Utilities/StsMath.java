@@ -517,19 +517,28 @@ public class StsMath
 
     public static final int sign(int number)
     {
-        if (number > 0)
-        {
-            return 1;
-        }
-        else if (number < 0)
-        {
-            return -1;
-        }
-        else
-        {
-            return 0;
-        }
+        if (number > 0) return 1;
+        else if (number < 0) return -1;
+        else return 0;
     }
+
+	public static final int signProduct(int n1, int n2)
+	{
+		if(n1 > 0)
+		{
+			if(n2 > 0) return 1;
+			else if(n2 < 0) return -1;
+			else return 0;
+		}
+		else if(n1 < 0)
+		{
+			if(n2 < 0) return 1;
+			else if(n2 > 0) return -1;
+			else return 0;
+		}
+		else // n1 == 0
+			return 0;
+	}
 
     public static final int sign(float number)
     {

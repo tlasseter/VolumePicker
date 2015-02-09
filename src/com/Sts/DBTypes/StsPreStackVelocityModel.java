@@ -1454,7 +1454,7 @@ public abstract class StsPreStackVelocityModel extends StsSeismicBoundingBox imp
 		return true;
 	}
 
-	/** interpolate mute from other profiles with given weights.  We are assuming sum of weights == 1.0 */
+	/** interpolate mute from other profiles with given weights.  We are assuming add of weights == 1.0 */
 	public boolean computeInterpolatedMutes(StsVelocityProfile interpolatedProfile, StsVelocityProfile[] profiles, double[] weights)
 	{
 		int nWeights = weights.length;

@@ -886,7 +886,7 @@ public class StsModelSurface extends StsSurface implements StsSelectable, StsXYS
 		StsSurfaceEdge nextEdge = (StsSurfaceEdge) lastEdge.getNextConnectedSurfaceEdge();
 		boolean lastIsDyingFault = nextEdge == null || nextEdge.isAuxiliary();
 
-		// first compute arc lengths for each edge individually and get sum of all edge lengths
+		// first compute arc lengths for each edge individually and get add of all edge lengths
 		float sumLengths = 0.0f;
 		for (e = 0; e < nEdges; e++)
 		{

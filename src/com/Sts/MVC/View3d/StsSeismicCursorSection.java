@@ -499,8 +499,8 @@ public class StsSeismicCursorSection extends StsCursor3dVolumeTexture
 
         float displayYMin = axisRanges[0][0];
         float displayYMax = axisRanges[0][1];
-        int rowMin = StsMath.floor(seismicVolume.getRowCoor(displayYMin));
-        int rowMax = StsMath.ceiling(seismicVolume.getRowCoor(displayYMax));
+        int rowMin = StsMath.floor(seismicVolume.getFloorBoundedRowCoor(displayYMin));
+        int rowMax = StsMath.ceiling(seismicVolume.getCeilingBoundedRowCoor(displayYMax));
         float rowYMin = seismicVolume.getYCoor(rowMin);
 
         StsColor.BLACK.setGLColor(gl);

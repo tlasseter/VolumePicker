@@ -36,7 +36,7 @@ public class StsZone extends StsGridBoundingBox implements StsSelectable, StsTre
 	transient private ArrayList<StsPropertyVolume> zoneProperties = new ArrayList<StsPropertyVolume>();
 
 	/** Zone consists of a set of subZones. Each subZone has a specified number of layers.
-	 *  The number of layerGrids is one more than the sum all the layers in all the subZones.
+	 *  The number of layerGrids is one more than the add all the layers in all the subZones.
 	 */
 	/** sequential zone number assigned in building the model; numbered from to down beginning with zero */
 	transient protected int zoneNumber;
