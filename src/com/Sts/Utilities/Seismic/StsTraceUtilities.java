@@ -20,53 +20,64 @@ public class StsTraceUtilities
 	/** fractional max error allowed in curve fitting wavelets */
 	static double maxError = 0.01;
 
-	public final static byte POINT_ORIGINAL = 0;
+	public final static byte ORG = 0; // original point
 
-	public final static byte POINT_PLUS_ZERO_CROSSING = 1;
-	public final static byte POINT_MAXIMUM = 2;
-	public final static byte POINT_MINUS_ZERO_CROSSING = 3;
-	public final static byte POINT_MINIMUM = 4;
+	public final static byte ZP = 1;  // plus-zero-crossing
+	public final static byte MX = 2; // maximum
+	public final static byte ZM = 3;  // minus-zero-crossing
+	public final static byte MN = 4; // minimum
 
-	public final static byte POINT_FALSE_MAXIMUM = 5;
-	public final static byte POINT_FALSE_MINIMUM = 6;
+	public final static byte ZPF = 5; // false plus-zero-crossing
+	public final static byte MXF = 6; // false maximum
+	public final static byte ZMF = 7; // false minus-zero-crossing
+	public final static byte MNF = 8; // false minimum
 
-	public final static byte POINT_PLUS_FALSE_ZERO_CROSSING = 7;
-	public final static byte POINT_MINUS_FALSE_ZERO_CROSSING = 8;
+	public final static byte ZPM = 9; // missing plus-zero-crossing
+	public final static byte MXM = 10; // missing maximum
+	public final static byte ZMM = 11; // missing minus-zero-crossing
+	public final static byte MNM = 12; // missing minimum
 
-	public final static byte POINT_INTERPOLATED = 9;
-	public final static byte POINT_FLAT_ZERO = 10;
+	public final static byte INT = 13; // interpolated point
+	public final static byte ZFLAT = 14; // flat zero (first point is zero or two or three points are zero)
 
-	public final static byte POINT_ANY = 11;
+	public final static byte ANY = 15; // if no other type defined
 
-	public final static byte[] pointTypesBefore = {POINT_ANY,
-			POINT_MINIMUM, POINT_PLUS_ZERO_CROSSING, POINT_MAXIMUM, POINT_MINUS_ZERO_CROSSING,
-			POINT_PLUS_ZERO_CROSSING, POINT_MINUS_ZERO_CROSSING,
-			POINT_MINIMUM, POINT_MAXIMUM,
-			POINT_ANY, POINT_ANY, POINT_ANY};
-	public final static byte[] pointTypesAfter = {POINT_ANY,
-			POINT_MAXIMUM, POINT_MINUS_ZERO_CROSSING, POINT_MINIMUM, POINT_PLUS_ZERO_CROSSING,
-			POINT_MINUS_ZERO_CROSSING, POINT_PLUS_ZERO_CROSSING,
-			POINT_MAXIMUM, POINT_MINIMUM,
-			POINT_ANY, POINT_ANY, POINT_ANY};
+	public final static byte[] pointTypesBefore = {ANY,
+			MN, ZP, MX, ZM,
+			MN, ZP, ZM, MX,
+			MN, ZP, ZM, MX,
+			ANY, ANY, ANY};
+	public final static byte[] pointTypesAfter = {ANY,
+			MX, ZM, MN, ZP,
+			MX, ZM, MN, ZP,
+			MX, ZM, MN, ZP,
+			ANY, ANY, ANY};
 
 	public final static String[] typeStrings = {"Original",
 			"Zero Plus", "Max", "Zero Minus", "Min",
-			"False Max", "False Min",
-			"False Zero Plus", "False Zero Minus",
+			"False Zero Plus", "False Max", "False Zero Minus", "False Min",
+			"Missing Zero Plus", "Missing Max", "Missing Zero Minus", "Missing Min",
 			"Interpolated", "Flat Zero", "Any"};
 
 	public final static StsColor[] typeColors = {StsColor.GRAY,
 			StsColor.MAGENTA, StsColor.RED, StsColor.CYAN, StsColor.BLUE,
-			StsColor.PURPLE, StsColor.LIGHTBLUE,
-			StsColor.BRONZE, StsColor.DARKTURQUOISE,
+			StsColor.BRONZE, StsColor.PURPLE, StsColor.DARKTURQUOISE, StsColor.LIGHTBLUE,
+			StsColor.LIGHT_GRAY, StsColor.LIGHT_GRAY, StsColor.LIGHT_GRAY, StsColor.LIGHT_GRAY,
 			StsColor.PINK, StsColor.AQUAMARINE, StsColor.YELLOW};
 
 	/** this maps the false types to their equivalent types */
-	public final static byte[] coercedPointTypes = {POINT_ORIGINAL,
-			POINT_PLUS_ZERO_CROSSING, POINT_MAXIMUM, POINT_MINUS_ZERO_CROSSING, POINT_MINIMUM,
-			POINT_MAXIMUM, POINT_MINIMUM,
-			POINT_PLUS_ZERO_CROSSING, POINT_MINUS_ZERO_CROSSING,
-			POINT_INTERPOLATED, POINT_FLAT_ZERO, POINT_ANY};
+	public final static byte[] coercedPointTypes = {ORG,
+			ZP, MX, ZM, MN,
+			ZP, MX, ZM, MN,
+			ZP, MX, ZM, MN,
+			INT, ZFLAT, ANY};
+
+	/** this is the offset to the next plus-zero-crossing from this type (which may be false or missing) */
+	public final static int[] zeroPlusOffset = {ORG,
+			ORG, ZM, MX, ZP,
+			ORG, ZM, MX, ZP,
+			ORG, ZM, MX, ZP,
+			ORG, ORG, ORG};
 
 	public static double[][] tracePoints;
 	public static byte[] tracePointTypes;
@@ -366,11 +377,11 @@ public class StsTraceUtilities
 		// for first point, assign as Max or min, or flat-zero
 		float v = pointValues[0];
 		if (v > 0)
-			tracePointTypes[0] = POINT_FALSE_MAXIMUM;
+			tracePointTypes[0] = MXF;
 		else if (v < 0)
-			tracePointTypes[0] = POINT_FALSE_MINIMUM;
+			tracePointTypes[0] = MNF;
 		else // v == 0
-			tracePointTypes[0] = POINT_FLAT_ZERO;
+			tracePointTypes[0] = ZFLAT;
 		// assign maxima and minima
 		float vp = pointValues[1];
 		for (int n = 1; n < nPoints - 1; n++)
@@ -382,42 +393,42 @@ public class StsTraceUtilities
 			if (v < vm && v <= vp)
 			{
 				if (v < 0)
-					tracePointTypes[n] = POINT_MINIMUM;
+					tracePointTypes[n] = MN;
 				else
-					tracePointTypes[n] = POINT_FALSE_MINIMUM;
+					tracePointTypes[n] = MNF;
 			}
 			else if (v > vm && v >= vp)
 			{
 				if (v > 0)
-					tracePointTypes[n] = POINT_MAXIMUM;
+					tracePointTypes[n] = MX;
 				else
-					tracePointTypes[n] = POINT_FALSE_MAXIMUM;
+					tracePointTypes[n] = MXF;
 			}
 			else
 			{
 				if (vm <= 0.0 && v > 0.0)
 				{
 					if (-vm < v)
-						tracePointTypes[n - 1] = POINT_PLUS_ZERO_CROSSING;
+						tracePointTypes[n - 1] = ZP;
 					else
-						tracePointTypes[n] = POINT_PLUS_ZERO_CROSSING;
+						tracePointTypes[n] = ZP;
 				}
 				else if (vm >= 0.0 && v < 0.0)
 				{
 					if (vm < -v)
-						tracePointTypes[n - 1] = POINT_MINUS_ZERO_CROSSING;
+						tracePointTypes[n - 1] = ZM;
 					else
-						tracePointTypes[n] = POINT_MINUS_ZERO_CROSSING;
+						tracePointTypes[n] = ZM;
 				}
 			}
 		}
 		v = vp;
 		if (v > 0)
-			tracePointTypes[nPoints - 1] = POINT_FALSE_MAXIMUM;
+			tracePointTypes[nPoints - 1] = MXF;
 		else if (v < 0)
-			tracePointTypes[nPoints - 1] = POINT_FALSE_MINIMUM;
+			tracePointTypes[nPoints - 1] = MNF;
 		else
-			tracePointTypes[nPoints - 1] = POINT_FLAT_ZERO;
+			tracePointTypes[nPoints - 1] = ZFLAT;
 
 		return tracePointTypes;
 	}
@@ -439,16 +450,16 @@ public class StsTraceUtilities
 			byte pointType = gatherPointTypes[i];
 			switch (pointType)
 			{
-				case POINT_MAXIMUM:
+				case MX:
 					phases[i] = 0.0f;
 					break;
-				case POINT_MINIMUM:
+				case MN:
 					phases[i] = 180;
 					break;
-				case POINT_PLUS_ZERO_CROSSING:
+				case ZP:
 					phases[i] = -90;
 					break;
-				case POINT_MINUS_ZERO_CROSSING:
+				case ZM:
 					phases[i] = 90;
 					break;
 			}
@@ -460,12 +471,12 @@ public class StsTraceUtilities
 			byte pointType = gatherPointTypes[i];
 			switch (pointType)
 			{
-				case POINT_MAXIMUM:
+				case MX:
 					amplitudes[i] = gatherData[i];
 					interpolateAmplitudes(prevIndex, i, amplitudes);
 					prevIndex = i;
 					break;
-				case POINT_MINIMUM:
+				case MN:
 					amplitudes[i] = -gatherData[i];
 					interpolateAmplitudes(prevIndex, i, amplitudes);
 					prevIndex = i;
@@ -507,7 +518,7 @@ public class StsTraceUtilities
 
 	static public final boolean isPointTypeEvent(byte type)
 	{
-		return type >= POINT_MINIMUM && type <= POINT_MINUS_ZERO_CROSSING;
+		return type >= MN && type <= ZM;
 	}
 
 	/**
@@ -529,11 +540,11 @@ public class StsTraceUtilities
 		double vp = pointValues[n + 1];
 
 		if (v < vm && v <= vp && v < 0)
-			tracePointTypes[n] = POINT_MINIMUM;
+			tracePointTypes[n] = MN;
 		else if (v > vm && v >= vp && v > 0)
-			tracePointTypes[n] = POINT_MAXIMUM;
+			tracePointTypes[n] = MX;
 		else
-			tracePointTypes[n] = POINT_INTERPOLATED;
+			tracePointTypes[n] = INT;
 	}
 
 	/**
@@ -550,41 +561,107 @@ public class StsTraceUtilities
 		double v = interpolatedPoints[n][1];
 		if (vm <= 0.0 && v > 0.0)
 		{
-			if (-vm < v && tracePointTypes[n - 1] == POINT_INTERPOLATED)
-				tracePointTypes[n - 1] = POINT_PLUS_ZERO_CROSSING;
-			else if (tracePointTypes[n] == POINT_INTERPOLATED)
-				tracePointTypes[n] = POINT_PLUS_ZERO_CROSSING;
+			if (-vm < v && tracePointTypes[n - 1] == INT)
+				tracePointTypes[n - 1] = ZP;
+			else if (tracePointTypes[n] == INT)
+				tracePointTypes[n] = ZP;
 		}
 		else if (vm >= 0.0 && v < 0.0)
 		{
-			if (vm < -v && tracePointTypes[n - 1] == POINT_INTERPOLATED)
-				tracePointTypes[n - 1] = POINT_MINUS_ZERO_CROSSING;
-			else if (tracePointTypes[n] == POINT_INTERPOLATED)
-				tracePointTypes[n] = POINT_MINUS_ZERO_CROSSING;
+			if (vm < -v && tracePointTypes[n - 1] == INT)
+				tracePointTypes[n - 1] = ZM;
+			else if (tracePointTypes[n] == INT)
+				tracePointTypes[n] = ZM;
 		}
+	}
+
+
+	static final public boolean arePointTypesOK(byte pointTypeBefore, byte pointType, byte pointTypeAfter)
+	{
+		if (isMaximum(pointType))
+			return isZeroPlus(pointTypeBefore) && isZeroMinus(pointTypeAfter);
+		else if (isMinimum(pointType))
+			return isZeroMinus(pointTypeBefore) && isZeroPlus(pointTypeAfter);
+		else if (isZeroMinus(pointType))
+			return isMaximum(pointTypeBefore) && isMinimum(pointTypeAfter);
+		else if (isZeroPlus(pointType))
+			return isMinimum(pointTypeBefore) && isMaximum(pointTypeAfter);
+		else return false;
+	}
+
+	static final public boolean arePointTypesAboveOK(byte pointTypeAbove, byte pointType)
+	{
+		if (isMaximum(pointType))
+			return isZeroPlus(pointTypeAbove);
+		else if (isMinimum(pointType))
+			return isZeroMinus(pointTypeAbove);
+		else if (isZeroMinus(pointType))
+			return isMaximum(pointTypeAbove);
+		else if (isZeroPlus(pointType))
+			return isMinimum(pointTypeAbove);
+		else return false;
+	}
+
+	static final public boolean arePointTypesBelowOK(byte pointType, byte pointTypeBelow)
+	{
+		if (isMaximum(pointType))
+			return isZeroMinus(pointTypeBelow);
+		else if (isMinimum(pointType))
+			return isZeroPlus(pointTypeBelow);
+		else if (isZeroMinus(pointType))
+			return isMinimum(pointTypeBelow);
+		else if (isZeroPlus(pointType))
+			return isMaximum(pointTypeBelow);
+		else return false;
+	}
+
+	static final public boolean isPointTypeAfterOK(byte pointType, byte pointTypeAfter)
+	{
+		if (isMaximum(pointType)) return isZeroMinus(pointTypeAfter);
+		else if (isMinimum(pointType)) return isZeroPlus(pointTypeAfter);
+		else if (isZeroMinus(pointType)) return isMinimum(pointTypeAfter);
+		else if (isZeroPlus(pointType)) return isMaximum(pointTypeAfter);
+		else return false;
+	}
+
+	static final public boolean isPointTypeBeforeOK(byte pointType, byte pointTypeAfter)
+	{
+		if (isMaximum(pointType)) return isZeroPlus(pointTypeAfter);
+		else if (isMinimum(pointType)) return isZeroMinus(pointTypeAfter);
+		else if (isZeroMinus(pointType)) return isMaximum(pointTypeAfter);
+		else if (isZeroPlus(pointType)) return isMinimum(pointTypeAfter);
+		else return false;
 	}
 
 	static public boolean isMaxMinOrZero(byte pointType)
 	{
-		return pointType >= POINT_PLUS_ZERO_CROSSING && pointType <= POINT_MINIMUM;
+		return pointType >= ZP && pointType <= MN;
 	}
 
 	static public boolean isMaxMinZeroOrFalseMaxMin(byte pointType)
 	{
-		return pointType >= POINT_PLUS_ZERO_CROSSING && pointType <= POINT_MINUS_FALSE_ZERO_CROSSING;
+		return pointType >= ZP && pointType <= MNF;
+	}
+
+	static public boolean isTypeOK(byte pointType, boolean useFalseTypes)
+	{
+		if(useFalseTypes)
+			return isMaxMinZeroOrFalseMaxMin(pointType);
+		else
+			return StsTraceUtilities.isMaxMinOrZero(pointType);
 	}
 
 	static private void adjustPointTypes()
 	{
-		byte pointType = POINT_INTERPOLATED;
-		byte nextPointType = POINT_INTERPOLATED;
+		byte pointType = INT;
+		byte nextPointType = INT;
 		int nPoint, nNextPoint;
 		int nPoints = tracePointTypes.length;
 		int n = 0;
 		for (n = 0; n < nPoints; n++)
 		{
 			pointType = tracePointTypes[n];
-			if (pointType == POINT_INTERPOLATED || pointType == POINT_ORIGINAL) continue;
+			if (pointType == INT || pointType == ORG) continue;
 			nPoint = n;
 			break;
 		}
@@ -593,7 +670,7 @@ public class StsTraceUtilities
 		for (; n < nPoints; n++)
 		{
 			nextPointType = tracePointTypes[n];
-			if (nextPointType == POINT_INTERPOLATED || nextPointType == POINT_ORIGINAL)
+			if (nextPointType == INT || nextPointType == ORG)
 				nNextPoint = n;
 			break;
 		}
@@ -602,7 +679,7 @@ public class StsTraceUtilities
 		for (; n < nPoints; n++)
 		{
 			byte type = tracePointTypes[n];
-			if (type != POINT_INTERPOLATED && type != POINT_ORIGINAL)
+			if (type != INT && type != ORG)
 			{
 				byte prevPointType = pointType;
 				int nPrevPoint = nPoint;
@@ -610,38 +687,38 @@ public class StsTraceUtilities
 				nPoint = nNextPoint;
 				nextPointType = type;
 				nNextPoint = n;
-				if (pointType == POINT_MINIMUM)
+				if (pointType == MN)
 				{
-					if (prevPointType != POINT_MINUS_ZERO_CROSSING && nextPointType != POINT_PLUS_ZERO_CROSSING)
+					if (prevPointType != ZM && nextPointType != ZP)
 					{
-						pointType = POINT_INTERPOLATED;
-						tracePointTypes[nPoint] = POINT_INTERPOLATED;
+						pointType = INT;
+						tracePointTypes[nPoint] = INT;
 					}
 				}
-				else if (pointType == POINT_MAXIMUM)
+				else if (pointType == MX)
 				{
-					if (prevPointType != POINT_PLUS_ZERO_CROSSING && nextPointType != POINT_MINUS_ZERO_CROSSING)
+					if (prevPointType != ZP && nextPointType != ZM)
 					{
-						pointType = POINT_INTERPOLATED;
-						tracePointTypes[nPoint] = POINT_INTERPOLATED;
+						pointType = INT;
+						tracePointTypes[nPoint] = INT;
 					}
 				}
-				else if (pointType == POINT_PLUS_ZERO_CROSSING)
+				else if (pointType == ZP)
 				{
-					if (prevPointType != POINT_MINIMUM && nextPointType != POINT_MAXIMUM)
+					if (prevPointType != MN && nextPointType != MX)
 					{
-						pointType = POINT_INTERPOLATED;
-						tracePointTypes[nPoint] = POINT_INTERPOLATED;
+						pointType = INT;
+						tracePointTypes[nPoint] = INT;
 					}
 					else
 						tracePoints[nPoint][1] = 0.0;
 				}
-				else if (pointType == POINT_MINUS_ZERO_CROSSING)
+				else if (pointType == ZM)
 				{
-					if (prevPointType != POINT_MAXIMUM && nextPointType != POINT_MINIMUM)
+					if (prevPointType != MX && nextPointType != MN)
 					{
-						pointType = POINT_INTERPOLATED;
-						tracePointTypes[nPoint] = POINT_INTERPOLATED;
+						pointType = INT;
+						tracePointTypes[nPoint] = INT;
 					}
 					else
 						tracePoints[nPoint][1] = 0.0;
@@ -733,11 +810,11 @@ public class StsTraceUtilities
 		gl.glPointSize(4);
 		gl.glBegin(GL.GL_POINTS);
 		float z = displayZMin;
-		byte[] pointTypes = getPointTypes(values, true);
+		byte[] pointTypes = getPointTypes(values);
 		for (int i = 0, n = nValueMin; i < nValues; i++, n += displayInc, z += zInc)
 		{
 			byte pointType = pointTypes[n];
-			if (pointType == POINT_ORIGINAL || pointType >= POINT_INTERPOLATED) continue;
+			if (pointType == ORG || pointType >= INT) continue;
 			getPointTypeColor(pointType).setGLColor(gl);
 			gl.glVertex2f(values[n] + x0, z);
 		}
@@ -745,33 +822,22 @@ public class StsTraceUtilities
 		gl.glEnable(GL.GL_LIGHTING);
 	}
 
-	static public byte getPointType(float[] values, int n)
-	{
-		if (n == 0)
-			return getEndPointType(values[0]);
-		int nValues = values.length;
-		if (n == nValues - 1)
-			return getEndPointType(values[nValues - 1]);
-		else
-			return getPointType(values[n - 1], values[n], values[n + 1]);
-	}
-
-	static public byte[] getPointTypes(float[] values, boolean useFalseTypes)
+	static public byte[] getPointTypes(float[] values)
 	{
 		int nValues = values.length;
 		byte[] pointTypes = new byte[nValues];
-		getMaxMinPointTypes(values, pointTypes, nValues);
-		getZeroCrossingPointTypes(values, pointTypes, nValues);
-		if(useFalseTypes) checkInsertFalseZeroCrossings(values, pointTypes, nValues);
+		setMaxMinPointTypes(values, pointTypes, nValues);
+		setZeroCrossingPointTypes(values, pointTypes, nValues);
+		checkInsertFalseZeroCrossings(values, pointTypes, nValues);
 		return pointTypes;
 	}
 
-	static private void getMaxMinPointTypes(float[] values, byte[] pointTypes, int nValues)
+	static private void setMaxMinPointTypes(float[] values, byte[] pointTypes, int nValues)
 	{
 		float vm;
 		float v = values[0];
 		float vp = values[1];
-		pointTypes[0] = getEndPointType(v);
+		pointTypes[0] = getPointType(0.0f, v, vp);
 		for (int n = 1; n < nValues - 1; n++)
 		{
 			vm = v;
@@ -780,22 +846,22 @@ public class StsTraceUtilities
 			if (v < vm && v <= vp)
 			{
 				if (v < 0)
-					pointTypes[n] =  POINT_MINIMUM;
+					pointTypes[n] = MN;
 				else
-					pointTypes[n] =  POINT_FALSE_MINIMUM;
+					pointTypes[n] = MNF;
 			}
 			else if (v > vm && v >= vp)
 			{
 				if (v > 0)
-					pointTypes[n] = POINT_MAXIMUM;
+					pointTypes[n] = MX;
 				else
-					pointTypes[n] = POINT_FALSE_MAXIMUM;
+					pointTypes[n] = MXF;
 			}
 		}
-		pointTypes[nValues-1] = getEndPointType(vp);
+		pointTypes[nValues-1] = getPointType(v, vp, 0.0f);
 	}
 
-	static private void getZeroCrossingPointTypes(float[] values, byte[] pointTypes, int nValues)
+	static private void setZeroCrossingPointTypes(float[] values, byte[] pointTypes, int nValues)
 	{
 		float vm;
 		float vp = values[0];
@@ -808,46 +874,47 @@ public class StsTraceUtilities
 			vm = vp;
 			vp = values[n];
 			if(tm != 0 && tp != 0) continue;
+			if(tm == ZP || tp == ZP) continue;
 
 			if (vm <= 0.0 && vp > 0.0)
 			{
 				if (-vm < vp && tm == 0) // vm is closer to zero, so try to set it on minus side
-					pointTypes[n - 1] = POINT_PLUS_ZERO_CROSSING;
+					pointTypes[n - 1] = ZP;
 				else if (tp == 0) // vp is closer to zero or minua side already set, so try to set it on plus side
-					pointTypes[n] = POINT_PLUS_ZERO_CROSSING;
+					pointTypes[n] = ZP;
 				else if (tm == 0) // try setting on minus side as plus side is filled
-					pointTypes[n - 1] = POINT_PLUS_ZERO_CROSSING;
+					pointTypes[n - 1] = ZP;
 				else
-					StsException.systemDebug(StsTraceUtilities.class, "getZeroCrossingPointTypes", "Can't set. vm = " + vm + " vp " + vp +
+					StsException.systemDebug(StsTraceUtilities.class, "setZeroCrossingPointTypes", "Can't set. vm = " + vm + " vp " + vp +
 							" minusType " + pointTypes[n - 1] + " plusType " + pointTypes[n]);
 			}
 			else if (vp <= 0.0 && vm > 0.0)
 			{
 				if (-vm < vp && pointTypes[n-1] == 0) // vm is closer to zero, so try to set it on minus side
-					pointTypes[n - 1] = POINT_MINUS_ZERO_CROSSING;
+					pointTypes[n - 1] = ZM;
 				else if (pointTypes[n] == 0) // vp is closer to zero or minua side already set, so try to set it on plus side
-					pointTypes[n] = POINT_MINUS_ZERO_CROSSING;
+					pointTypes[n] = ZM;
 				else if (pointTypes[n - 1] == 0) // try setting on minus side as plus side is filled
-					pointTypes[n - 1] = POINT_MINUS_ZERO_CROSSING;
+					pointTypes[n - 1] = ZM;
 				else
-					StsException.systemDebug(StsTraceUtilities.class, "getZeroCrossingPointTypes", "Can't set. vm = " + vm + " vp " + vp +
+					StsException.systemDebug(StsTraceUtilities.class, "setZeroCrossingPointTypes", "Can't set. vm = " + vm + " vp " + vp +
 							" minusType " + pointTypes[n - 1] + " plusType " + pointTypes[n]);
 			}
 		}
 	}
 
 	/** Given two points minusPoint and plusPoint with pointTypes defined. Create an inBetween point with a type in the following situations:
-	 *  	minusType is a FALSE_MIN and plusPoint is a maxType (MAX or FALSE_MAX), then create a POINT_PLUS_FALSE_ZERO_CROSSING halfway between if it fits
-	 *      minusType is a maxType (MAX or FALSE_MAX) and plusPoint is a FALSE_MIN, then create a POINT_MINUS_FALSE_ZERO_CROSSING halfway between if it fits
-	 *  	minusType is a FALSE_MAX and plusPoint is a minType (MIN or FALSE_MIN), then create a POINT_MINUS_FALSE_ZERO_CROSSING halfway between if it fits
-	 *      minusType is a minType (MIN or FALSE_MIN) and plusPoint is a FALSE_MAX, then create a POINT_PLUS_FALSE_ZERO_CROSSING halfway between if it fits
+	 *  	minusType is a FALSE_MIN and plusPoint is a maxType (MX or FALSE_MAX), then create a ZPF halfway between if it fits
+	 *      minusType is a maxType (MX or FALSE_MAX) and plusPoint is a FALSE_MIN, then create a ZMF halfway between if it fits
+	 *  	minusType is a FALSE_MAX and plusPoint is a minType (MN or FALSE_MIN), then create a ZMF halfway between if it fits
+	 *      minusType is a minType (MN or FALSE_MIN) and plusPoint is a FALSE_MAX, then create a ZPF halfway between if it fits
 	 * @param values trace amplitude values
 	 * @param pointTypes current pointTypes (max, min, zero-crossings, real and false
 	 * @param nValues number of trace values
 	 */
 	static private void checkInsertFalseZeroCrossings(float[] values, byte[] pointTypes, int nValues)
 	{
-		TracePoint point = getNextTracePoint(values, nValues, pointTypes, 0);
+		TracePoint point = getNextTracePoint(values, nValues, pointTypes, -1);
 		TracePoint nextPoint;
 		while ((nextPoint = getNextTracePoint(values, nValues, pointTypes, point)) != null)
 		{
@@ -860,14 +927,14 @@ public class StsTraceUtilities
 	{
 		byte type = point.type;
 		byte nextType = nextPoint.type;
-		if(type == POINT_FALSE_MINIMUM && isMaximum(nextType))
-			splitTracePoint(point, nextPoint, pointTypes, POINT_PLUS_FALSE_ZERO_CROSSING);
-		else if(isMaximum(type) && nextType == POINT_FALSE_MINIMUM)
-			splitTracePoint(point, nextPoint, pointTypes, POINT_MINUS_FALSE_ZERO_CROSSING);
-		else if(type == POINT_FALSE_MAXIMUM && isMinimum(nextType))
-			splitTracePoint(point, nextPoint, pointTypes, POINT_MINUS_FALSE_ZERO_CROSSING);
-		else if(isMinimum(type) && nextType == POINT_FALSE_MAXIMUM)
-			splitTracePoint(point, nextPoint, pointTypes, POINT_PLUS_FALSE_ZERO_CROSSING);
+		if(type == MNF && isMaximum(nextType))
+			splitTracePoint(point, nextPoint, pointTypes, ZPF);
+		else if(isMaximum(type) && nextType == MNF)
+			splitTracePoint(point, nextPoint, pointTypes, ZMF);
+		else if(type == MXF && isMinimum(nextType))
+			splitTracePoint(point, nextPoint, pointTypes, ZMF);
+		else if(isMinimum(type) && nextType == MXF)
+			splitTracePoint(point, nextPoint, pointTypes, ZPF);
 	}
 
 	static private void splitTracePoint(TracePoint point, TracePoint nextPoint, byte[] pointTypes, byte splitType)
@@ -895,6 +962,14 @@ public class StsTraceUtilities
 		return null;
 	}
 
+	static public int getNumPointTypesBetweenInclusive(byte pointTypeStart, byte pointTypeEnd)
+	{
+		if(pointTypeEnd >= pointTypeStart)
+			return pointTypeEnd - pointTypeStart + 1;
+		else
+			return pointTypeEnd - pointTypeStart + 5;
+	}
+
 	static class TracePoint
 	{
 		int index;
@@ -911,50 +986,59 @@ public class StsTraceUtilities
 
 	static final boolean isMaximum(byte pointType)
 	{
-		return pointType == POINT_MAXIMUM || pointType == POINT_FALSE_MAXIMUM;
+		return pointType == MX || pointType == MXF;
 	}
 
-	static final boolean isMinimum(byte pointType)
+	static public final boolean isMinimum(byte pointType)
 	{
-		return pointType == POINT_MINIMUM || pointType == POINT_FALSE_MINIMUM;
+		return pointType == MN || pointType == MNF;
 	}
 
-	final boolean isZeroPlus(byte pointType)
+	static public final boolean isZeroPlus(byte pointType)
 	{
-		return pointType == POINT_PLUS_ZERO_CROSSING || pointType == POINT_PLUS_FALSE_ZERO_CROSSING;
+		return pointType == ZP || pointType == ZPF;
 	}
 
-
-	static private byte getEndPointType(float value)
+	static public final boolean isZeroMinus(byte pointType)
 	{
-		if (value > 0)
-			return POINT_FALSE_MAXIMUM;
-		else if (value < 0)
-			return POINT_FALSE_MINIMUM;
+		return pointType == ZM || pointType == ZMF;
+	}
+
+	static public final boolean isPointTypeFalse(byte pointType) { return pointType >= ZPF && pointType <= MNF; }
+
+	/** assume that minus point is 0.0 and process using the 3 points. */
+	static private byte getEndPointType(float v, float vp)
+	{
+		if (v > 0)
+			return getPointType(0.0f, v, vp);
+		else if (v < 0)
+			return getPointType(0.0f, v, vp);
 		else // value == 0
-			return POINT_FLAT_ZERO;
+			return ZFLAT;
 	}
 
 	static private byte getPointType(float vm, float v, float vp)
 	{
-		if (v < vm && v <= vp)
+		if (vm > v && v <= vp)
 		{
 			if (v < 0)
-				return POINT_MINIMUM;
+				return MN;
 			else
-				return POINT_FALSE_MINIMUM;
+				return MNF;
 		}
 		else if (v > vm && v >= vp)
 			if (v > 0)
-				return POINT_MAXIMUM;
+				return MX;
 			else
-				return POINT_FALSE_MAXIMUM;
+				return MXF;
 		else if (vm <= 0.0 && vp > 0.0)
-			return POINT_PLUS_ZERO_CROSSING;
+			return ZP;
 		else if (vm >= 0.0 && vp < 0.0)
-			return POINT_MINUS_ZERO_CROSSING;
+			return ZM;
+		else if(vm == 0.0 && v == 0.0 && vp == 0.0)
+			return ZFLAT;
 		else
-			return POINT_INTERPOLATED;
+			return INT;
 	}
 
 	static public void drawFilledWiggleTraces(GL gl, float[] values, int nValueMin, int nValues, float x0, float displayZMin, float zInc, StsWiggleDisplayProperties wiggleProperties, int displayInc)
@@ -1719,9 +1803,9 @@ public class StsTraceUtilities
 			p = 0;
 			for (n = 0; n < nDataPoints - 1; n++)
 			{
-				tracePointTypes[p++] = POINT_ORIGINAL;
+				tracePointTypes[p++] = ORG;
 				for (int i = 0; i < nIntervals - 1; i++, p++)
-					tracePointTypes[p] = POINT_INTERPOLATED;
+					tracePointTypes[p] = INT;
 			}
 			tracePoints[p] = dataPoints[nDataPoints - 1];
 			return tracePoints;
@@ -1735,7 +1819,7 @@ public class StsTraceUtilities
 
 	static public boolean isZeroCrossingOrMinOrMax(byte pointType)
 	{
-		return pointType >= POINT_MAXIMUM && pointType <= POINT_MINUS_ZERO_CROSSING;
+		return pointType >= MX && pointType <= ZM;
 	}
 
 static private byte[] scratchByteData;

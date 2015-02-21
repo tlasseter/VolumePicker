@@ -57,7 +57,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 	StsIntFieldBean boxFilterWidthBean = new StsIntFieldBean();
 
 	StsBooleanFieldBean useFalseTypesBean = new StsBooleanFieldBean();
-	StsBooleanFieldBean checkCycleSkipBean = new StsBooleanFieldBean();
+	StsBooleanFieldBean checkBackMatchBean = new StsBooleanFieldBean();
 	// StsBooleanFieldBean cycleSkipOnlyBean = new StsBooleanFieldBean();
 
 	StsBooleanFieldBean debugBean = new StsBooleanFieldBean();
@@ -90,7 +90,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 	public int boxFilterWidth = 1;
 	public boolean useFalseTypes = true;
 	/** when closing a local box ij box, don't allow same patch at two different points on closing trace */
-	public boolean checkCycleSkips = false;
+	public boolean checkBackMatch = true;
 	//public boolean cycleSkipOnly = false;
 	public boolean debug = false;
 	public int patchId = NO_DEBUG;
@@ -116,7 +116,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 	static final String filterString  = "Smmoth patches before drawing";
 	static final String boxFilterWidthString = "Width of box filter for smoothing (3x3 has width of 1, 5x5 has width of 2).";
 	static final String useFalseTypesTip = "Allow false types to correlate with true types (e.g., false Max and Max.";
-	static final String checkCycleSkipsTip = "When closing a local loop, don't allow a cycle skip.";
+	static final String checkBackMatchTip = "After initial match, see if it matches back; if not, reject match.";
 	//static final String cycleSkipOnlyTip = "DEBUG: only run the cycle skip check.";
     static public final float defaultAutoCorMax = 0.9f;
     static public final float defaultAutoCorMin = 0.4f;
@@ -177,8 +177,8 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 
 			useFalseTypesBean.initialize(this, "useFalseTypes", "Use false types");
 			useFalseTypesBean.setToolTipText(useFalseTypesTip);
-			checkCycleSkipBean.initialize(this, "checkCycleSkips", "Check loop cycle skips");
-			checkCycleSkipBean.setToolTipText(checkCycleSkipsTip);
+			checkBackMatchBean.initialize(this, "checkBackMatch", "Check back match");
+			checkBackMatchBean.setToolTipText(checkBackMatchTip);
 			//cycleSkipOnlyBean.initialize(this, "cycleSkipOnly", "Cycle skip check only");
 			//cycleSkipOnlyBean.setToolTipText(cycleSkipOnlyTip);
 
@@ -220,7 +220,7 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 //		pickBox.add(maxStretchBean);
         pickBox.add(minPatchSizeBean);
 		pickBox.add(useFalseTypesBean);
-		pickBox.add(checkCycleSkipBean);
+		pickBox.add(checkBackMatchBean);
 		//pickBox.add(cycleSkipOnlyBean);
         StsJPanel operationsPanel = new StsJPanel();
         operationsPanel.gbc.fill = GridBagConstraints.HORIZONTAL;
@@ -521,14 +521,14 @@ public class StsPatchPickPanel extends StsFieldBeanPanel // implements ActionLis
 	}
 
 	/** when closing a local box ij box, don't allow same patch at two different points on closing trace */
-	public boolean getCheckCycleSkips()
+	public boolean getCheckBackMatch()
 	{
-		return checkCycleSkips;
+		return checkBackMatch;
 	}
 
-	public void setCheckCycleSkips(boolean checkCycleSkips)
+	public void setCheckBackMatch(boolean checkBackMatch)
 	{
-		this.checkCycleSkips = checkCycleSkips;
+		this.checkBackMatch = checkBackMatch;
 	}
 
 	public boolean getDebug()

@@ -450,10 +450,9 @@ public class StsSeismicCursorSection extends StsCursor3dVolumeTexture
             float[][] traceData = new float[nCols][nSlices];
             for(int col = 0; col < nCols; col++)
                 floatBuffer.get(traceData[col]);
-            StsMath.computeNormalizedRMSAmplitude(traceData);
             traces = new StsTraceSet(traceData, seismicVolume, 5, wiggleProperties);
         }
-        traces.initializeDraw(viewCursor, wiggleProperties);
+        traces.initializeDraw(viewCursor, xInc, wiggleProperties);
 
         StsColor.BLACK.setGLColor(gl);
         gl.glDisable(GL.GL_LIGHTING);
@@ -476,9 +475,9 @@ public class StsSeismicCursorSection extends StsCursor3dVolumeTexture
     private void displayCubicWiggleTracesCol(StsGLPanel3d glPanel3d, GL gl, StsViewCursor viewCursor)
     {
         float[][] axisRanges = viewCursor.axisRanges;
-        float xInc = cursorBoundingBox.xInc;
+        float yInc = cursorBoundingBox.yInc;
        // If density is less than 1:4 traces to pixels, display wiggles
-        if (((axisRanges[0][1] - axisRanges[0][0]) / xInc) > glPanel3d.getWidth() / getWiggleToPixelRatio())
+        if (((axisRanges[0][1] - axisRanges[0][0]) / yInc) > glPanel3d.getWidth() / getWiggleToPixelRatio())
               return;
 
         StsWiggleDisplayProperties wiggleProperties = seismicVolume.getWiggleDisplayProperties();
@@ -495,7 +494,7 @@ public class StsSeismicCursorSection extends StsCursor3dVolumeTexture
             StsMath.computeNormalizedRMSAmplitude(traceData);
             traces = new StsTraceSet(traceData, seismicVolume, 5, wiggleProperties);
         }
-        traces.initializeDraw(viewCursor, wiggleProperties);
+        traces.initializeDraw(viewCursor, yInc, wiggleProperties);
 
         float displayYMin = axisRanges[0][0];
         float displayYMax = axisRanges[0][1];
@@ -507,7 +506,6 @@ public class StsSeismicCursorSection extends StsCursor3dVolumeTexture
         gl.glDisable(GL.GL_LIGHTING);
         gl.glLineWidth(0.5f);
         float y = rowYMin;
-        float yInc = cursorBoundingBox.yInc;
         for (int row = rowMin; row <= rowMax; row++, y += yInc)
             traces.displayInterpolatedPoints(gl, row, y);
         gl.glEnable(GL.GL_LIGHTING);

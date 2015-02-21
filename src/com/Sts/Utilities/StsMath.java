@@ -7585,7 +7585,15 @@ remaining = (int[]) StsMath.arrayDeleteElements(array, new int[]{2, 4, 6});
                 }
             }
         }
-        return Math.sqrt(sum / nValues);
+        double amplitude = Math.sqrt(sum / nValues);
+		for (int t = 0; t < nTraces; t++)
+		{
+			if (traces[t] == null) continue;
+			int nSamples = traces[t].length;
+			for (int n = 0; n < nSamples; n++)
+				traces[t][n] /= amplitude;
+		}
+		return amplitude;
     }
 
     public static float[] normalizeAmplitudeRMS(float[] values)

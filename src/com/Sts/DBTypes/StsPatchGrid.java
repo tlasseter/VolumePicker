@@ -40,7 +40,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	float[][] rowCorrels;
 	float[][] colCorrels;
 
-	transient StsPatchVolume.PatchPoint[][] patchPoints = null;
+	transient PatchPoint[][] patchPoints = null;
 	/** flag indicating this patchGrid has been added to current patchVolume.rowGrids hashmap list; avoids overhead of trying to re-add */
 	transient public boolean rowGridAdded = false;
 
@@ -194,7 +194,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 			StsException.systemDebug(this, "mergePatchPoints", StsPatchVolume.iterLabel + "merging patch id: " + removedGrid.id + " to patch id: " + id);
 
 		RowColGrid union = rowColGridUnion(removedGrid); //union of this and newPatchGrid
-		StsPatchVolume.PatchPoint[][] newMergedPatchPoints = new StsPatchVolume.PatchPoint[union.nRows][union.nCols]; // create empty mergedPoints grid
+		PatchPoint[][] newMergedPatchPoints = new PatchPoint[union.nRows][union.nCols]; // create empty mergedPoints grid
 		if (!copyPatchPointsTo(newMergedPatchPoints, union)) return false; // copy this patchPoints to mergedPoints
 		if (!removedGrid.copyPatchPointsTo(newMergedPatchPoints, union)) return false;
 		removedGrid.resetPatchPointsGrid(this);
@@ -265,26 +265,26 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		}
 	}
 
-	boolean patchPointOverlaps(StsPatchVolume.PatchPoint patchPoint)
+	boolean patchPointOverlaps(PatchPoint patchPoint)
 	{
 		try
 		{
 			if (!contains(patchPoint)) return false;
-			if(getPatchPoint(patchPoint.row, patchPoint.col) == null) return false;
+			if(getPatchPoint(patchPoint.getRow(), patchPoint.getCol()) == null) return false;
 			if(debug && debugPoint && (doDebugPoint(patchPoint)))
 				StsException.systemDebug(this, "patchPointOverlaps", StsPatchVolume.iterLabel + "patchPoint " + patchPoint.toString() +
-						" overlaps point " + getPatchPoint(patchPoint.row, patchPoint.col));
+						" overlaps window " + getPatchPoint(patchPoint.getRow(), patchPoint.getCol()));
 			return true;
 		}
 		catch (Exception e)
 		{
-			StsException.outputWarningException(this, "patchPointOverlaps", "Failed for point: " + patchPoint.toString() +
+			StsException.outputWarningException(this, "patchPointOverlaps", "Failed for window: " + patchPoint.toString() +
 					" on grid: " + toString(), e);
 			return false;
 		}
 	}
 
-	void addPatchPoint(StsPatchVolume.PatchPoint patchPoint)
+	void addPatchPoint(PatchPoint patchPoint)
 	{
 		// if (debugPatchGrid && id == debugPatchID)
 		if(debug && debugPoint && (doDebugPoint(patchPoint)))
@@ -296,24 +296,24 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 			checkAdjustGrid(patchPoint);
 		if (!contains(patchPoint))
 		{
-			StsException.systemError(this, "addPatchPoint", "pointGrid " + rowColGrid.toString() + " doesn't contain point " + patchPoint.toString());
+			StsException.systemError(this, "addPatchPoint", "pointGrid " + rowColGrid.toString() + " doesn't contain window " + patchPoint.toString());
 			return;
 		}
-		if(patchPoints[patchPoint.row - rowMin][patchPoint.col - colMin] != null)
+		if(patchPoints[patchPoint.getRow() - rowMin][patchPoint.getCol() - colMin] != null)
 		{
-			StsException.systemError(this, "addPatchPoint", "pointGrid " + rowColGrid.toString() + " already has point " + patchPoints[patchPoint.row - rowMin][patchPoint.col - colMin].toString() +
+			StsException.systemError(this, "addPatchPoint", "pointGrid " + rowColGrid.toString() + " already has point " + patchPoints[patchPoint.getRow() - rowMin][patchPoint.getCol() - colMin].toString() +
 					" so can't add " + patchPoint.toString());
 			return;
 		}
-		patchPoints[patchPoint.row - rowMin][patchPoint.col - colMin] = patchPoint;
+		patchPoints[patchPoint.getRow() - rowMin][patchPoint.getCol() - colMin] = patchPoint;
 		patchPoint.setPatchGrid(this);
 		nPatchPoints++;
 	}
 
-	void checkAdjustGrid(StsPatchVolume.PatchPoint patchPoint)
+	void checkAdjustGrid(PatchPoint patchPoint)
 	{
-		int row = patchPoint.row;
-		int col = patchPoint.col;
+		int row = patchPoint.getRow();
+		int col = patchPoint.getCol();
 
 		int rowMinNew = rowMin, rowMaxNew = rowMax, colMinNew = colMin, colMaxNew = colMax;
 
@@ -349,21 +349,21 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 	{
 		if (debug && debugPatchGrid && id == debugPatchID)
 			StsException.systemDebug(this, "copyResetRowColGrid", StsPatchVolume.iterLabel + "grid reset from " + rowColGrid + " to " + newRowColGrid);
-		StsPatchVolume.PatchPoint[][] newPatchPoints = copyPatchPoints(newRowColGrid);
+		PatchPoint[][] newPatchPoints = copyPatchPoints(newRowColGrid);
 		resetPatchPoints(newRowColGrid, newPatchPoints);
 	}
 
-	StsPatchVolume.PatchPoint[][] copyPatchPoints(RowColGrid newRowColGrid)
+	PatchPoint[][] copyPatchPoints(RowColGrid newRowColGrid)
 	{
 		if (patchPoints == null) return null;
-		StsPatchVolume.PatchPoint[][] newPatchPoints = new StsPatchVolume.PatchPoint[newRowColGrid.nRows][newRowColGrid.nCols];
+		PatchPoint[][] newPatchPoints = new PatchPoint[newRowColGrid.nRows][newRowColGrid.nCols];
 		if (!copyPatchPointsTo(newPatchPoints, newRowColGrid))
 			return null;
 		else
 			return newPatchPoints;
 	}
 
-	boolean copyPatchPointsTo(StsPatchVolume.PatchPoint[][] newPatchPoints, RowColGrid newRowColGrid)
+	boolean copyPatchPointsTo(PatchPoint[][] newPatchPoints, RowColGrid newRowColGrid)
 	{
 		int row = -1, newRow = -1;
 		int col = -1, newCol = -1;
@@ -394,7 +394,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		}
 	}
 
-	void resetPatchPoints(RowColGrid newRowColGrid, StsPatchVolume.PatchPoint[][] newPatchPoints)
+	void resetPatchPoints(RowColGrid newRowColGrid, PatchPoint[][] newPatchPoints)
 	{
 		initializeRowColGrid(newRowColGrid);
 		patchPoints = newPatchPoints;
@@ -406,31 +406,31 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 				newRowColGrid.colMin >= colMin && newRowColGrid.colMax <= colMax;
 	}
 
-	boolean contains(StsPatchVolume.PatchPoint patchPoint)
+	boolean contains(PatchPoint patchPoint)
 	{
-		int row = patchPoint.row;
-		int col = patchPoint.col;
+		int row = patchPoint.getRow();
+		int col = patchPoint.getCol();
 		return row >= rowMin && row <= rowMax && col >= colMin && col <= colMax;
 	}
 
-	private void initializePatchPoints(StsPatchVolume.PatchPoint patchPoint)
+	private void initializePatchPoints(PatchPoint patchPoint)
 	{
 		initializeRowColGrid(patchPoint);
-		patchPoints = new StsPatchVolume.PatchPoint[nRows][nCols];
+		patchPoints = new PatchPoint[nRows][nCols];
 	}
 
 	/**
-	 * Called to add a point which doesn't belong to a grid to this patchGrid as long as it doesn't overlap.
-	 * If it does overlap, create a new patchGrid and add this point and clone of connectedPatchPoint which
+	 * Called to add a window which doesn't belong to a grid to this patchGrid as long as it doesn't overlap.
+	 * If it does overlap, create a new patchGrid and add this window and clone of connectedPatchPoint which
 	 * belongs to this grid.
 	 */
-	public StsPatchGrid checkAddPatchPoint(StsPatchVolume.PatchPoint patchPoint, StsPatchVolume.PatchPoint connectedPatchPoint)
+	public StsPatchGrid checkAddPatchPoint(PatchPoint patchPoint, PatchPoint connectedPatchPoint)
 	{
 		if (patchPointOverlaps(patchPoint))
 		{
 			StsPatchGrid newPatchGrid = StsPatchGrid.construct(patchVolume, patchType);
 			newPatchGrid.addPatchPoint(patchPoint);
-			// newPatchGrid.addPatchPoint(connectedPatchPoint.clone());
+			newPatchGrid.addPatchPoint(connectedPatchPoint.cloneAndClear());
 			return newPatchGrid;
 		}
 		else
@@ -440,32 +440,48 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		}
 	}
 
-	public final void addCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
+	public final void addCorrelation(Connection connection, boolean isRow)
 	{
-		if (otherPatchPoint.row == newPatchPoint.row)
+		PatchPoint otherPatchPoint = connection.otherWindow.centerPoint;
+		PatchPoint newPatchPoint = connection.window.centerPoint;
+		if (isRow)
+		{
+			newPatchPoint.rowConnection = connection;
+			otherPatchPoint.rowCorrel = connection.correlation;
+		}
+		else
+		{
+			newPatchPoint.colConnection = connection;
+			otherPatchPoint.colCorrel = connection.correlation;
+		}
+	}
+/*
+	public final void addCorrelation(PatchPoint otherPatchPoint, PatchPoint newPatchPoint, float correl)
+	{
+		if (otherPatchPoint.getRow() == newPatchPoint.getRow())
 			addRowCorrelation(otherPatchPoint, newPatchPoint, correl);
 		else
 			addColCorrelation(otherPatchPoint, newPatchPoint, correl);
 	}
 
-	public final void addRowCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
+	public final void addRowCorrelation(PatchPoint otherPatchPoint, PatchPoint newPatchPoint, float correl)
 	{
 		if(debug && debugPoint && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
 			StsException.systemDebug(this, "addRowCorrelation", StsPatchVolume.iterLabel + "adding row correl to " + otherPatchPoint.toString());
-		otherPatchPoint.rowCorrel = correl;
+		newPatchPoint.rowConnection =  otherPatchPoint.rowCorrel = correl;
 	}
 
-	public final void addColCorrelation(StsPatchVolume.PatchPoint otherPatchPoint, StsPatchVolume.PatchPoint newPatchPoint, float correl)
+	public final void addColCorrelation(PatchPoint otherPatchPoint, PatchPoint newPatchPoint, float correl)
 	{
 		if (debug && debugPoint && (doDebugPoint(otherPatchPoint) || doDebugPoint(newPatchPoint)))
 			StsException.systemDebug(this, "addColCorrelation", StsPatchVolume.iterLabel + "adding row correl to " + otherPatchPoint.toString());
 		otherPatchPoint.colCorrel = correl;
 	}
-
-	public static final boolean doDebugPoint(StsPatchVolume.PatchPoint patchPoint)
+*/
+	public static final boolean doDebugPoint(PatchPoint patchPoint)
 	{
 		if(!debugPoint) return false;
-		if(patchPoint == null || patchPoint.row != debugPointRow || patchPoint.col != debugPointCol) return false;
+		if(patchPoint == null || patchPoint.getRow() != debugPointRow || patchPoint.getCol() != debugPointCol) return false;
 		if(patchPoint.slice == debugPointSlice) return true;
 		if(debug && debugPatchGrid && (patchPoint.patchGrid == null || patchPoint.patchGrid.id != debugPatchID)) return false;
 		return false;
@@ -490,10 +506,10 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		initializeRowColGrid(new RowColGrid(rowMin, rowMax, colMin, colMax));
 	}
 
-	private void initializeRowColGrid(StsPatchVolume.PatchPoint patchPoint)
+	private void initializeRowColGrid(PatchPoint patchPoint)
 	{
-		int row = patchPoint.row;
-		int col = patchPoint.col;
+		int row = patchPoint.getRow();
+		int col = patchPoint.getCol();
 		initializeRowColGrid(row, row, col, col);
 	}
 
@@ -712,7 +728,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 					float x = (patchColMin - patchPointCol) * xInc;
 					for (int patchCol = patchColMin; patchCol <= patchColMax; patchCol++, x += xInc)
 					{
-						StsPatchVolume.PatchPoint patchPoint = patchPoints[patchRow][patchCol];
+						PatchPoint patchPoint = patchPoints[patchRow][patchCol];
 						if (patchPoint == null) continue;
 						float z = patchPoint.z;
 						if (z == StsParameters.nullValue) continue;
@@ -1230,7 +1246,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 			System.out.println("atten " + atten[2]);
 			float[] ft = new float[1];
 			gl.glGetFloatv(GL.GL_POINT_SIZE_MAX, ft, 0);
-			System.out.println("point max " + ft[0]);
+			System.out.println("window max " + ft[0]);
 			gl.glPointSize(ft[0] > maxSize ? maxSize : ft[0]);
 			gl.glPointParameterf(GL.GL_POINT_SIZE_MAX, ft[0] > maxSize ? maxSize : ft[0]);
 		}
@@ -1480,7 +1496,7 @@ public class StsPatchGrid extends StsXYGridBoundingBox implements Comparable<Sts
 		return getColCorrel(row, col) > patchVolume.minLinkCorrel;
 	}
 
-	public StsPatchVolume.PatchPoint getPatchPoint(int row, int col)
+	public PatchPoint getPatchPoint(int row, int col)
 	{
 		if (patchPoints == null) return null;
 		if(!isInsideRowCol(row, col)) return null;
